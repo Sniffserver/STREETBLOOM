@@ -11,7 +11,9 @@ export type GameEventType =
   | 'COMPANION_EVOLVED'
   | 'ITEM_FOUND'
   | 'ACHIEVEMENT_UNLOCKED'
-  | 'WORLD_EVENT_TRIGGERED';
+  | 'WORLD_EVENT_TRIGGERED'
+  | 'TURN_RECOVERED'
+  | 'INTERACTION_COMPLETED';
 
 export type EventCallback<T = unknown> = (data: T) => void;
 

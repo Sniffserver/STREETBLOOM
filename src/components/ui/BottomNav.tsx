@@ -1,6 +1,6 @@
 import React from 'react';
 import { useGameStore, ActiveScreen } from '../../store/useGameStore';
-import { Sparkles, Map, BookOpen, MessageSquare, ScrollText, User, Settings } from 'lucide-react';
+import { Sparkles, Map, BookOpen, MessageSquare, ScrollText, User, Settings, Compass } from 'lucide-react';
 import { getTranslation } from '../../locales/i18n';
 import { soundManager } from '../../audio/soundManager';
 
@@ -11,6 +11,11 @@ export const BottomNav: React.FC = () => {
   const activeQuestsCount = quests.filter((q) => q.status === 'active').length;
 
   const navItems: { id: ActiveScreen; label: string; icon: React.ReactNode; badge?: number }[] = [
+    {
+      id: 'dashboard',
+      label: 'Keskus',
+      icon: <Compass className="w-5 h-5" />,
+    },
     {
       id: 'explore',
       label: t.nav.explore,

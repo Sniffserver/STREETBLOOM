@@ -261,12 +261,167 @@ export interface Achievement {
   maxProgress: number;
 }
 
+export interface PlayerSkills {
+  streetSmart: number; // Tänavavaist: 1 - 10
+  persuasion: number;  // Veenvus: 1 - 10
+  tech: number;        // Tehnika: 1 - 10
+  stealth: number;     // Varitsemine: 1 - 10
+}
+
+export type AccuracyTier = 'HIGH' | 'MEDIUM' | 'POOR';
+
+export type ActionCategory = 'small_job' | 'trade' | 'risk_gig' | 'story' | 'network_project';
+
+export interface InteractionChoice {
+  id: string;
+  title: string;
+  description: string;
+  category?: ActionCategory;
+  turnCost: number;
+  cashCost?: number; // C in E[Δraha] = p*R - C - (1-p)*L
+  cashReward?: number; // R in formula
+  failureLoss?: number; // L in formula (additional cash penalty on failure)
+  successProbability?: number; // p in formula (0.0 - 1.0)
+  reputationChange?: number;
+  dailyLimit?: number; // G in formula
+  timeMinutes?: number; // T in formula
+  requiredSkill?: {
+    skill: keyof PlayerSkills;
+    level: number;
+  };
+  riskPercent?: number; // 0-100% chance of complication (alias for (1-p)*100)
+  riskDescription?: string;
+  outcomeText: string;
+}
+
+export interface InteractionCommand {
+  interactionId: string;   // korduskatsete idempotentsus
+  spawnId: string;
+  actionId: string;
+  clientTime: string;
+  locationEvidence?: {
+    areaId: string;
+    accuracyMeters: number;
+    latitude?: number;
+    longitude?: number;
+  };
+}
+
+export interface NPCSpawnEvent {
+  spawnId: string;
+  npcId: string;
+  district: DistrictName;
+  latitude: number;
+  longitude: number;
+  timeSlot: string;
+  expiresAt: number;
+  interactionRadius: number;
+  rewardCap: number;
+  timesInteracted: number;
+  storyState: string;
+  choices?: InteractionChoice[];
+}
+
+export interface InteractionExecutionResult {
+  success: boolean;
+  message: string;
+  cashDelta: number;
+  reputationDelta: number;
+  turnCost: number;
+  skillXpGained?: { skill: keyof PlayerSkills; xp: number };
+  rewardItem?: string;
+  questProgressed?: string;
+  consequence?: string;
+}
+
+export type CashLedgerCategory = 
+  | 'job_income' 
+  | 'trade_income' 
+  | 'trade_cost' 
+  | 'gig_income' 
+  | 'gig_cost' 
+  | 'gig_loss' 
+  | 'story_reward' 
+  | 'sink_maintenance' 
+  | 'sink_project' 
+  | 'sink_intel'
+  | 'initial_grant';
+
+export interface CashLedgerEntry {
+  id: string;
+  timestamp: string;
+  amount: number; // positive = inflow, negative = outflow/sink
+  balanceAfter: number;
+  category: CashLedgerCategory;
+  description: string;
+  interactionId?: string;
+}
+
+export type NetworkRole = 'owner' | 'manager' | 'member';
+
+export interface NetworkMember {
+  id: string;
+  name: string;
+  role: NetworkRole;
+  joinedAt: string;
+  contributedCash: number;
+  contributedMaterials: number;
+  completedQuests: number;
+  lastActiveAt: string;
+}
+
+export interface DistrictProject {
+  id: string;
+  district: DistrictName;
+  title: string;
+  description: string;
+  targetCash: number;
+  currentCash: number;
+  targetMaterials: number;
+  currentMaterials: number;
+  isUnlocked: boolean;
+  unlockedAt?: string;
+  perkDescription: string;
+  contributorCount: number;
+}
+
+export interface PlayerNetwork {
+  id: string;
+  name: string;
+  district: DistrictName;
+  createdAt: string;
+  members: NetworkMember[];
+  projects: DistrictProject[];
+  activityLog: {
+    id: string;
+    timestamp: string;
+    memberId: string;
+    memberName: string;
+    action: string;
+    amount?: number;
+  }[];
+  treasury: number;
+}
+
 export interface PlayerProfile {
   id: string;
   name: string;
   level: number;
   explorationXP: number;
   xpToNextLevel: number;
+  // Core Varjulinn Resources
+  cash: number;
+  reputation: number;
+  actionTurns: number;
+  maxActionTurns: number;
+  skills: PlayerSkills;
+  estimatedSteps: number;
+  todayStepsTurnsGranted: number;
+  dailyRiskGigsPerformedToday?: number;
+  lastDailyResetDate?: string;
+  cashLedger?: CashLedgerEntry[];
+  activeMainQuestId?: string;
+  // Physical Exploration Stats
   totalDistanceMeters: number;
   streetsDiscovered: number;
   districtsDiscovered: number;
@@ -279,6 +434,8 @@ export interface PlayerProfile {
   knownNPCIds: string[];
   createdAt: string;
   lastActiveAt: string;
+  demoCash?: number;
+  demoReputation?: number;
 }
 
 export interface GameEvent {

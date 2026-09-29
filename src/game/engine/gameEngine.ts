@@ -14,6 +14,15 @@ import {
   WalkSession,
   BehavioralProfile,
   GameEvent,
+  DistrictName,
+  AccuracyTier,
+  InteractionCommand,
+  InteractionExecutionResult,
+  NPCSpawnEvent,
+  DistrictProject,
+  PlayerNetwork,
+  CashLedgerEntry,
+  CashLedgerCategory,
 } from '../../types/game';
 import { eventBus } from './eventBus';
 import { localStore } from '../../services/storage/db';
@@ -25,6 +34,8 @@ import {
   haversineDistanceMeters,
   validateMovement,
 } from '../../services/geo/geoUtils';
+import { districtTracker, getAccuracyTier } from '../../services/geo/districtService';
+import { getDeterministicSpawnForDistrict, getCurrentTimeSlot } from '../../services/npc/spawnService';
 import { soundManager } from '../../audio/soundManager';
 import { SEED_ITEMS } from '../../data/itemsSeed';
 import { SEED_ACHIEVEMENTS } from '../../data/achievements';
@@ -61,6 +72,16 @@ export class GameEngine {
   private currentSession: WalkSession;
   private syncTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Varjulinn Core Systems
+  private currentDistrict: DistrictName = 'Kesklinn';
+  private activeSpawn: NPCSpawnEvent | null = null;
+  private processedInteractionIds = new Set<string>();
+  private accumulatedStepBuffer: number = 0;
+  private lastTurnRecoveryTime: number = Date.now();
+  private safetyReports: Array<{ lat: number; lon: number; note: string; timestamp: string }> = [];
+  private projects: DistrictProject[] = [];
+  private network: PlayerNetwork;
+
   constructor() {
     this.profile = localStore.getProfile();
     this.companion = localStore.getCompanion();
@@ -68,6 +89,10 @@ export class GameEngine {
     this.npcs = localStore.getNPCs() || SEED_NPCS.map((n) => ({ ...n }));
     this.quests = localStore.getQuests() || SEED_QUESTS.map((q) => ({ ...q }));
     this.achievements = localStore.getAchievements() || SEED_ACHIEVEMENTS.map((a) => ({ ...a }));
+    this.projects = localStore.getDistrictProjects();
+    this.network = localStore.getNetwork();
+
+    this.checkDailyReset();
 
     SEED_ITEMS.forEach((it) => this.itemsMap.set(it.id, it));
 
@@ -88,6 +113,11 @@ export class GameEngine {
 
   public async initialize(initialLoc: GeoLocation): Promise<void> {
     this.lastLocation = initialLoc;
+
+    // Detect and establish confirmed district and initial spawn
+    const districtRes = districtTracker.update(initialLoc.latitude, initialLoc.longitude);
+    this.currentDistrict = districtRes.district;
+    this.activeSpawn = getDeterministicSpawnForDistrict(this.currentDistrict, getCurrentTimeSlot(), this.npcs);
 
     this.streets = await defaultGeoProvider.getNearbyStreets(
       initialLoc.latitude,
@@ -226,9 +256,47 @@ export class GameEngine {
     if (dist > 0) {
       this.profile.totalDistanceMeters += Math.round(dist);
       this.currentSession.distanceMeters += Math.round(dist);
+
+      // Walking step conversion: 1m ≈ 1.33 steps (0.75m average stride)
+      const steps = Math.round(dist / 0.75);
+      this.profile.estimatedSteps = (this.profile.estimatedSteps || 0) + steps;
+      this.accumulatedStepBuffer += steps;
+
+      // 200 steps -> 1 action turn (max 6 turns/day from walking)
+      while (this.accumulatedStepBuffer >= 200) {
+        this.accumulatedStepBuffer -= 200;
+        if ((this.profile.todayStepsTurnsGranted || 0) < 6 && this.profile.actionTurns < this.profile.maxActionTurns) {
+          this.profile.actionTurns += 1;
+          this.profile.todayStepsTurnsGranted = (this.profile.todayStepsTurnsGranted || 0) + 1;
+          soundManager.playHappy();
+          eventBus.emit('TURN_RECOVERED', { reason: 'steps', currentTurns: this.profile.actionTurns });
+        }
+      }
+
       this.updateQuestProgress('EXPLORATION', Math.round(dist));
       this.updateAchievementProgress('ach-distance-5k', Math.round(dist));
       this.updateBehavioralProfile(dist);
+    }
+
+    // Passive turn recovery (1 turn every 15 minutes up to maxActionTurns)
+    const nowTime = Date.now();
+    const fifteenMinutes = 15 * 60 * 1000;
+    if (nowTime - this.lastTurnRecoveryTime >= fifteenMinutes) {
+      const turnsToAdd = Math.floor((nowTime - this.lastTurnRecoveryTime) / fifteenMinutes);
+      if (this.profile.actionTurns < this.profile.maxActionTurns) {
+        this.profile.actionTurns = Math.min(this.profile.maxActionTurns, this.profile.actionTurns + turnsToAdd);
+      }
+      this.lastTurnRecoveryTime = nowTime;
+    }
+
+    // District tracking with 30s hysteresis
+    const districtRes = districtTracker.update(location.latitude, location.longitude);
+    this.currentDistrict = districtRes.district;
+
+    // Active deterministic spawn management
+    const timeSlot = getCurrentTimeSlot();
+    if (!this.activeSpawn || this.activeSpawn.district !== this.currentDistrict || this.activeSpawn.expiresAt <= nowTime) {
+      this.activeSpawn = getDeterministicSpawnForDistrict(this.currentDistrict, timeSlot, this.npcs);
     }
 
     const prevLocation = this.lastLocation;
@@ -880,6 +948,379 @@ export class GameEngine {
     }
   }
 
+  public getCurrentDistrict(): DistrictName {
+    return this.currentDistrict;
+  }
+
+  public getActiveSpawn(): NPCSpawnEvent | null {
+    return this.activeSpawn;
+  }
+
+  public getAccuracyTier(loc?: GeoLocation): AccuracyTier {
+    const accuracy = loc ? loc.accuracy : (this.lastLocation?.accuracy ?? 10);
+    return getAccuracyTier(accuracy);
+  }
+
+  public reportSafetyIssue(lat: number, lon: number, note?: string): void {
+    const report = {
+      lat,
+      lon,
+      note: note || 'See koht pole ohutu või ligipääsetav',
+      timestamp: new Date().toISOString(),
+    };
+    this.safetyReports.push(report);
+    this.logGameEvent('SAFETY_REPORTED', report);
+    soundManager.playTap();
+  }
+
+  public checkDailyReset(): void {
+    const today = new Date().toISOString().split('T')[0];
+    if (this.profile.lastDailyResetDate !== today) {
+      this.profile.lastDailyResetDate = today;
+      this.profile.dailyRiskGigsPerformedToday = 0;
+      this.profile.todayStepsTurnsGranted = 0;
+      this.saveState();
+    }
+  }
+
+  public recordCashTransaction(
+    amount: number,
+    category: CashLedgerCategory,
+    description: string,
+    interactionId?: string
+  ): void {
+    if (!this.profile.cashLedger) {
+      this.profile.cashLedger = [];
+    }
+    const entry: CashLedgerEntry = {
+      id: generateUUID(),
+      timestamp: new Date().toISOString(),
+      amount,
+      balanceAfter: this.profile.cash,
+      category,
+      description,
+      interactionId,
+    };
+    this.profile.cashLedger.push(entry);
+    if (this.profile.cashLedger.length > 200) {
+      this.profile.cashLedger.shift();
+    }
+  }
+
+  public getEconomyHealthMetrics(): {
+    totalInflow: number;
+    totalOutflow: number;
+    netRaha: number;
+    currentBalance: number;
+    transactionsCount: number;
+  } {
+    const ledger = this.profile.cashLedger || [];
+    let totalInflow = 0;
+    let totalOutflow = 0;
+
+    for (const tx of ledger) {
+      if (tx.amount > 0) {
+        totalInflow += tx.amount;
+      } else {
+        totalOutflow += Math.abs(tx.amount);
+      }
+    }
+
+    return {
+      totalInflow,
+      totalOutflow,
+      netRaha: totalInflow - totalOutflow,
+      currentBalance: this.profile.cash,
+      transactionsCount: ledger.length,
+    };
+  }
+
+  public getDistrictProjects(): DistrictProject[] {
+    return this.projects;
+  }
+
+  public getPlayerNetwork(): PlayerNetwork {
+    return this.network;
+  }
+
+  public contributeToProject(
+    projectId: string,
+    cashAmount: number,
+    materialsCount: number = 0
+  ): { success: boolean; message: string; project?: DistrictProject } {
+    this.checkDailyReset();
+    const proj = this.projects.find((p) => p.id === projectId);
+    if (!proj) {
+      return { success: false, message: 'Projekti ei leitud.' };
+    }
+    if (proj.isUnlocked) {
+      return { success: false, message: 'See linnaosa projekt on juba edukalt avatud!' };
+    }
+    if (cashAmount < 0) {
+      return { success: false, message: 'Annetussumma ei saa olla negatiivne.' };
+    }
+    // Abuse protection: max 50 kr per single donation
+    if (cashAmount > 50) {
+      return { success: false, message: 'Korraga saab annetada kuni 50 kr (kuritarvituskaitse limiit).' };
+    }
+    if (cashAmount > 0 && this.profile.cash < cashAmount) {
+      return { success: false, message: `Sul pole piisavalt raha (${this.profile.cash}/${cashAmount} kr).` };
+    }
+
+    if (cashAmount > 0) {
+      this.profile.cash -= cashAmount;
+      this.recordCashTransaction(-cashAmount, 'sink_project', `Panus projekti: ${proj.title}`);
+      proj.currentCash = Math.min(proj.targetCash, proj.currentCash + cashAmount);
+    }
+
+    if (materialsCount > 0) {
+      proj.currentMaterials = Math.min(proj.targetMaterials, proj.currentMaterials + materialsCount);
+    }
+
+    proj.contributorCount += 1;
+    this.network.treasury = (this.network.treasury || 0) + cashAmount;
+
+    // Check project completion
+    if (proj.currentCash >= proj.targetCash && proj.currentMaterials >= proj.targetMaterials) {
+      proj.isUnlocked = true;
+      proj.unlockedAt = new Date().toISOString();
+      this.profile.reputation += 15;
+      soundManager.playLevelUp();
+      eventBus.emit('ACHIEVEMENT_UNLOCKED', { title: proj.title, type: 'project_completed' });
+    }
+
+    // Add activity log to network
+    this.network.activityLog.unshift({
+      id: generateUUID(),
+      timestamp: new Date().toISOString(),
+      memberId: 'mem-1',
+      memberName: `${this.profile.name} (Sina)`,
+      action: `Annetas projekti "${proj.title}" ${cashAmount} kr ja ${materialsCount} materjali`,
+      amount: cashAmount,
+    });
+    if (this.network.activityLog.length > 50) {
+      this.network.activityLog.pop();
+    }
+
+    // Reward modest reputation
+    this.profile.reputation += Math.max(1, Math.floor(cashAmount / 10));
+
+    this.saveState();
+    return {
+      success: true,
+      message: proj.isUnlocked
+        ? `Projekt "${proj.title}" sai täidetud! Hüve on nüüd aktiivne: ${proj.perkDescription}`
+        : `Aitäh! Panustasid ${cashAmount} kr linnaosa arengusse.`,
+      project: proj,
+    };
+  }
+
+  public maintainGear(): { success: boolean; message: string } {
+    const cost = 15;
+    if (this.profile.cash < cost) {
+      return { success: false, message: `Varustuse hoolduseks on vaja ${cost} kr (sul on ${this.profile.cash} kr).` };
+    }
+    this.profile.cash -= cost;
+    this.recordCashTransaction(-cost, 'sink_maintenance', 'Varustuse ja jalanõude tehniline hooldus');
+
+    // Perk: restore companion happiness and grant 1 action turn if below max
+    this.companion.happiness = Math.min(100, this.companion.happiness + 20);
+    if (this.profile.actionTurns < this.profile.maxActionTurns) {
+      this.profile.actionTurns += 1;
+    }
+    soundManager.playHappy();
+    this.saveState();
+    return {
+      success: true,
+      message: 'Jalanõud ja varustus on hooldatud! Kaaslase tuju paranes ja said +1 käigu.',
+    };
+  }
+
+  public async executeInteraction(command: InteractionCommand): Promise<InteractionExecutionResult> {
+    this.checkDailyReset();
+
+    // 1. Idempotency check
+    if (this.processedInteractionIds.has(command.interactionId)) {
+      return {
+        success: false,
+        message: 'See tegevus on juba sooritatud (idempotentne kordus).',
+        cashDelta: 0,
+        reputationDelta: 0,
+        turnCost: 0,
+      };
+    }
+
+    // 2. Find choice in active spawn or fallback
+    let choice = this.activeSpawn?.choices?.find((c) => c.id === command.actionId);
+    if (!choice && this.activeSpawn) {
+      choice = this.activeSpawn.choices?.[0];
+    }
+
+    if (!choice) {
+      return {
+        success: false,
+        message: 'Valitud tegevust ei leitud või see pole enam aktiivne.',
+        cashDelta: 0,
+        reputationDelta: 0,
+        turnCost: 0,
+      };
+    }
+
+    // 3. Daily limit check for risky gig (G in formula)
+    if (choice.category === 'risk_gig') {
+      const gigLimit = choice.dailyLimit || 3;
+      if ((this.profile.dailyRiskGigsPerformedToday || 0) >= gigLimit) {
+        return {
+          success: false,
+          message: `Päevane riskantsete otsade limiit (${gigLimit}/${gigLimit}) on täis. Tule tagasi homme või vali väike töö!`,
+          cashDelta: 0,
+          reputationDelta: 0,
+          turnCost: 0,
+        };
+      }
+    }
+
+    // 4. Action turns verification
+    if (this.profile.actionTurns < choice.turnCost) {
+      return {
+        success: false,
+        message: `Sul pole piisavalt käike (${this.profile.actionTurns}/${choice.turnCost}). Kõnni samme või oota käigu taastumist.`,
+        cashDelta: 0,
+        reputationDelta: 0,
+        turnCost: 0,
+      };
+    }
+
+    // 5. Upfront cash cost check (C in formula)
+    const upfrontCost = choice.cashCost || 0;
+    if (upfrontCost > 0 && this.profile.cash < upfrontCost) {
+      return {
+        success: false,
+        message: `Sul pole piisavalt raha (${this.profile.cash}/${upfrontCost} kr vajalik ettemaksuks/tooraineks).`,
+        cashDelta: 0,
+        reputationDelta: 0,
+        turnCost: 0,
+      };
+    }
+
+    // 6. Skill requirements check
+    if (choice.requiredSkill) {
+      const skillLevel = this.profile.skills[choice.requiredSkill.skill] || 1;
+      if (skillLevel < choice.requiredSkill.level) {
+        return {
+          success: false,
+          message: `Nõutav oskus puudub: ${choice.requiredSkill.skill} tase ${choice.requiredSkill.level} (sul on ${skillLevel}).`,
+          cashDelta: 0,
+          reputationDelta: 0,
+          turnCost: 0,
+        };
+      }
+    }
+
+    // 7. Spawn reward cap check
+    if (this.activeSpawn && this.activeSpawn.timesInteracted >= this.activeSpawn.rewardCap) {
+      return {
+        success: false,
+        message: 'Selleks tunniks on selle kontaktiga limiit saavutatud. Tule tagasi uuel ajavahemikul.',
+        cashDelta: 0,
+        reputationDelta: 0,
+        turnCost: 0,
+      };
+    }
+
+    // 8. Deduct action turn cost
+    this.profile.actionTurns -= choice.turnCost;
+
+    // 9. Deduct upfront cash cost (C)
+    if (upfrontCost > 0) {
+      this.profile.cash -= upfrontCost;
+      const costCategory: CashLedgerCategory =
+        choice.category === 'trade' ? 'trade_cost' : 'gig_cost';
+      this.recordCashTransaction(-upfrontCost, costCategory, `Ettemaks/tooraine: ${choice.title}`, command.interactionId);
+    }
+
+    // 10. Execute formula: E[Δraha] = p*R - C - (1-p)*L
+    const p = choice.successProbability ?? (choice.riskPercent !== undefined ? (100 - choice.riskPercent) / 100 : 1.0);
+    const roll = Math.random();
+    const isSuccess = roll <= p;
+
+    let cashDelta = -upfrontCost;
+    let repDelta = 0;
+    let consequence: string | undefined = undefined;
+    let message = choice.outcomeText;
+
+    if (isSuccess) {
+      const reward = choice.cashReward || 0;
+      this.profile.cash += reward;
+      cashDelta += reward;
+      const incCategory: CashLedgerCategory =
+        choice.category === 'small_job'
+          ? 'job_income'
+          : choice.category === 'trade'
+          ? 'trade_income'
+          : choice.category === 'risk_gig'
+          ? 'gig_income'
+          : 'story_reward';
+      this.recordCashTransaction(reward, incCategory, `Tasu: ${choice.title}`, command.interactionId);
+
+      repDelta = choice.reputationChange || 0;
+      this.profile.reputation += repDelta;
+      soundManager.playDiscovery();
+    } else {
+      // Failure branch: apply failure penalty L
+      const loss = choice.failureLoss || 0;
+      // Ensure player cash balance cannot drop below zero
+      const actualLoss = Math.min(this.profile.cash, loss);
+      this.profile.cash -= actualLoss;
+      cashDelta -= actualLoss;
+      if (actualLoss > 0) {
+        this.recordCashTransaction(-actualLoss, 'gig_loss', `Leppetrahv/kahjutasu: ${choice.title}`, command.interactionId);
+      }
+
+      repDelta = -2;
+      this.profile.reputation = Math.max(0, this.profile.reputation + repDelta);
+      consequence = choice.riskDescription || 'Tegevus ebaõnnestus! Kaotasid ettemaksu ja maksid kahjutasu.';
+      message = consequence;
+      soundManager.playTap();
+    }
+
+    // 11. Track limits and stats
+    if (choice.category === 'risk_gig') {
+      this.profile.dailyRiskGigsPerformedToday = (this.profile.dailyRiskGigsPerformedToday || 0) + 1;
+    }
+    if (this.activeSpawn) {
+      this.activeSpawn.timesInteracted += 1;
+    }
+
+    // 12. Mark idempotent interaction ID
+    this.processedInteractionIds.add(command.interactionId);
+
+    // Companion reaction
+    this.companion.happiness = Math.min(100, Math.max(0, this.companion.happiness + (isSuccess ? 5 : -3)));
+
+    this.logGameEvent('INTERACTION_EXECUTED', {
+      command,
+      actionId: choice.id,
+      category: choice.category,
+      isSuccess,
+      cashDelta,
+      reputationDelta: repDelta,
+      turnCost: choice.turnCost,
+    });
+
+    this.saveState();
+    eventBus.emit('INTERACTION_COMPLETED', { command, choice });
+
+    return {
+      success: isSuccess,
+      message,
+      cashDelta,
+      reputationDelta: repDelta,
+      turnCost: choice.turnCost,
+      consequence,
+    };
+  }
+
   public saveState(): void {
     localStore.saveProfile(this.profile);
     localStore.saveCompanion(this.companion);
@@ -888,6 +1329,8 @@ export class GameEngine {
     localStore.saveQuests(this.quests);
     localStore.saveAchievements(this.achievements);
     localStore.saveStreetsProgress(this.streets);
+    localStore.saveDistrictProjects(this.projects);
+    localStore.saveNetwork(this.network);
   }
 }
 

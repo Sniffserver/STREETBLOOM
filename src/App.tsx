@@ -16,10 +16,13 @@ import { CelebrationModal } from './components/ui/CelebrationModal';
 import { StreetDetailsModal } from './features/map/StreetDetailsModal';
 import { OnboardingModal } from './features/onboarding/OnboardingModal';
 import { OfflineIndicator } from './features/pwa/OfflineIndicator';
+import { DashboardScreen } from './features/dashboard/DashboardScreen';
+import { RadarListScreen } from './features/radar/RadarListScreen';
 
 export default function App() {
   const {
     activeScreen,
+    setActiveScreen,
     currentLocation,
     selectedNPCForChat,
     setSelectedNPCForChat,
@@ -154,6 +157,16 @@ export default function App() {
 
         {/* Screen Routing */}
         <main className="relative flex-1 w-full h-full overflow-hidden">
+          {(activeScreen === 'dashboard' || !activeScreen) && (
+            <DashboardScreen
+              onOpenMap={() => setActiveScreen('explore')}
+              onOpenRadar={() => setActiveScreen('radar')}
+              onOpenQuest={() => setActiveScreen('quests')}
+            />
+          )}
+
+          {activeScreen === 'radar' && <RadarListScreen />}
+
           {activeScreen === 'explore' && (
             <>
               <CompassHeader />

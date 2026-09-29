@@ -10,6 +10,13 @@ import {
   InventoryItem,
   Achievement,
   ProceduralEncounter,
+  DistrictName,
+  NPCSpawnEvent,
+  AccuracyTier,
+  InteractionCommand,
+  InteractionExecutionResult,
+  DistrictProject,
+  PlayerNetwork,
 } from '../types/game';
 import { gameEngine } from '../game/engine/gameEngine';
 import { localStore, GameSettings } from '../services/storage/db';
@@ -17,7 +24,17 @@ import { TALLINN_CENTER } from '../data/tallinnSeed';
 import { Language } from '../locales/i18n';
 import { gpsSmoother } from '../services/geo/geoUtils';
 
-export type ActiveScreen = 'explore' | 'companion' | 'npcs' | 'quests' | 'collection' | 'profile' | 'settings';
+export type ActiveScreen =
+  | 'dashboard'
+  | 'explore'
+  | 'radar'
+  | 'companion'
+  | 'npcs'
+  | 'quests'
+  | 'collection'
+  | 'character'
+  | 'profile'
+  | 'settings';
 
 interface GameState {
   // Navigation & UI State
@@ -43,6 +60,9 @@ interface GameState {
 
   // GPS & Map State
   currentLocation: GeoLocation;
+  currentDistrict: DistrictName;
+  activeSpawn: NPCSpawnEvent | null;
+  accuracyTier: AccuracyTier;
   isTracking: boolean;
   gpsError: string | null;
   isSimulatingWalk: boolean;
@@ -55,6 +75,10 @@ interface GameState {
   setIsTracking: (tracking: boolean) => void;
   toggleSimulatedWalk: () => void;
   teleportTo: (lat: number, lon: number) => void;
+  reportSafetyIssue: (note?: string) => void;
+
+  // Controlled Command Flow
+  executeInteraction: (command: InteractionCommand) => Promise<InteractionExecutionResult>;
 
   // Game Entities
   profile: PlayerProfile;
@@ -66,6 +90,12 @@ interface GameState {
   inventory: InventoryItem[];
   achievements: Achievement[];
   activeEncounters: ProceduralEncounter[];
+  districtProjects: DistrictProject[];
+  playerNetwork: PlayerNetwork;
+
+  // District Projects & Sinks
+  contributeToProject: (projectId: string, cashAmount: number, materialsCount?: number) => { success: boolean; message: string; project?: DistrictProject };
+  maintainGear: () => { success: boolean; message: string };
 
   // Companion Actions
   feedCompanion: (inventoryItemId?: string) => { success: boolean; message: string };
@@ -101,7 +131,7 @@ export const useGameStore = create<GameState>((set, get) => {
   };
 
   return {
-    activeScreen: 'explore',
+    activeScreen: 'dashboard',
     setActiveScreen: (screen) => set({ activeScreen: screen }),
     selectedNPCForChat: null,
     setSelectedNPCForChat: (npc) => set({ selectedNPCForChat: npc }),
@@ -121,6 +151,9 @@ export const useGameStore = create<GameState>((set, get) => {
     },
 
     currentLocation: initialLoc,
+    currentDistrict: 'Kesklinn',
+    activeSpawn: null,
+    accuracyTier: 'HIGH',
     isTracking: false,
     gpsError: null,
     isSimulatingWalk: false,
@@ -226,6 +259,19 @@ export const useGameStore = create<GameState>((set, get) => {
     inventory: gameEngine.getInventory(),
     achievements: gameEngine.getAchievements(),
     activeEncounters: gameEngine.getActiveEncounters(),
+    districtProjects: gameEngine.getDistrictProjects(),
+    playerNetwork: gameEngine.getPlayerNetwork(),
+
+    contributeToProject: (projectId, cashAmount, materialsCount) => {
+      const res = gameEngine.contributeToProject(projectId, cashAmount, materialsCount);
+      get().syncWithEngine();
+      return res;
+    },
+    maintainGear: () => {
+      const res = gameEngine.maintainGear();
+      get().syncWithEngine();
+      return res;
+    },
 
     feedCompanion: (itemId) => {
       const res = gameEngine.feedCompanion(itemId);
@@ -264,6 +310,16 @@ export const useGameStore = create<GameState>((set, get) => {
       get().syncWithEngine();
     },
 
+    reportSafetyIssue: (note) => {
+      gameEngine.reportSafetyIssue(get().currentLocation.latitude, get().currentLocation.longitude, note);
+    },
+
+    executeInteraction: async (command) => {
+      const res = await gameEngine.executeInteraction(command);
+      get().syncWithEngine();
+      return res;
+    },
+
     syncWithEngine: () => {
       set({
         profile: { ...gameEngine.getProfile() },
@@ -274,6 +330,11 @@ export const useGameStore = create<GameState>((set, get) => {
         quests: [...gameEngine.getQuests()],
         inventory: [...gameEngine.getInventory()],
         achievements: [...gameEngine.getAchievements()],
+        currentDistrict: gameEngine.getCurrentDistrict(),
+        activeSpawn: gameEngine.getActiveSpawn(),
+        accuracyTier: gameEngine.getAccuracyTier(get().currentLocation),
+        districtProjects: [...gameEngine.getDistrictProjects()],
+        playerNetwork: { ...gameEngine.getPlayerNetwork() },
       });
     },
   };

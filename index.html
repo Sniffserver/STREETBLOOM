@@ -2,6 +2,23 @@
 <html lang="et">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Per AI Studio environment constraints: HMR is disabled in preview iframe, ignore Vite WebSocket connection errors
+      (function () {
+        const origConsoleError = console.error;
+        console.error = function (...args) {
+          if (
+            args.length > 0 &&
+            typeof args[0] === 'string' &&
+            (args[0].includes('[vite]') || args[0].toLowerCase().includes('websocket'))
+          ) {
+            console.debug(...args);
+            return;
+          }
+          origConsoleError.apply(console, args);
+        };
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>StreetBloom</title>
     <meta name="description" content="The city is bigger than the map. A GPS exploration game with fog-of-war discovery, virtual companion, and living AI characters." />

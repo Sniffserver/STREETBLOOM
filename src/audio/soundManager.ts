@@ -133,6 +133,10 @@ class SoundManager {
     osc.stop(now + 0.3);
   }
 
+  public playHappy() {
+    this.playCompanionHappy();
+  }
+
   public playQuestComplete() {
     const ctx = this.getContext();
     if (!ctx) return;
