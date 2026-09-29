@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="et">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>StreetBloom</title>
+    <meta name="description" content="The city is bigger than the map. A GPS exploration game with fog-of-war discovery, virtual companion, and living AI characters." />
+    
+    <!-- Open Graph & Social Cards -->
+    <meta property="og:title" content="StreetBloom" />
+    <meta property="og:description" content="The city is bigger than the map. A GPS exploration game with fog-of-war discovery, virtual companion, and living AI characters." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="StreetBloom" />
+    <meta name="twitter:description" content="The city is bigger than the map. A GPS exploration game." />
+
+    <!-- PWA & Mobile Web Capabilities -->
+    <meta name="theme-color" content="#0a0d14" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="StreetBloom" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+
+    <!-- Preconnect for fast map tile loading -->
+    <link rel="preconnect" href="https://basemaps.cartocdn.com" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body class="bg-[#0a0d14] text-[#f1f5f9] select-none touch-manipulation overflow-hidden antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

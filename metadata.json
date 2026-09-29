@@ -1,0 +1,6 @@
+{
+  "name": "StreetBloom",
+  "description": "The city is bigger than the map. A GPS exploration game with fog-of-war discovery, virtual companion, and living AI characters.",
+  "requestFramePermissions": ["GEOLOCATION"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
