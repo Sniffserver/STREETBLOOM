@@ -334,6 +334,12 @@ export interface InteractionExecutionResult {
   consequence?: string;
 }
 
+// Explicit standard vertical slice contracts
+export type Player = PlayerProfile;
+export type Encounter = NPCSpawnEvent;
+export type Action = InteractionChoice;
+export type Outcome = InteractionExecutionResult;
+
 export type CashLedgerCategory = 
   | 'job_income' 
   | 'trade_income' 

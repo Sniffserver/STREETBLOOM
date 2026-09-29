@@ -184,23 +184,83 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
       </div>
 
       {/* Primary Goal / Aktiivne ülesanne — "Mida ma nüüd teen?" */}
-      <div className="bg-[#181d24] border border-amber-500/30 rounded-3xl p-4 mb-4 shadow-xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-2xl pointer-events-none" />
+      <div className="bg-[#181d24] border border-amber-500/40 rounded-3xl p-4 mb-4 shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
 
         <div className="flex items-center justify-between mb-2">
           <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-            Aktiivne eesmärk
+            Järgmine eesmärk / Võimalus
           </span>
-          <button
-            onClick={onOpenQuest}
-            className="text-xs text-slate-400 hover:text-white flex items-center gap-0.5 transition"
-          >
-            Vaata kõiki <ChevronRight className="w-3.5 h-3.5" />
-          </button>
+          <span className="text-[10px] font-mono text-slate-400 px-2 py-0.5 rounded bg-white/5">
+            {activeSpawn ? activeSpawn.spawnId : 'Kesklinn'}
+          </span>
         </div>
 
-        {activeQuest ? (
+        {spawnNpc && activeSpawn ? (
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-700 to-indigo-600 flex items-center justify-center text-2xl shadow-md shrink-0">
+                  {spawnNpc.avatar}
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-white flex items-center gap-1.5">
+                    {spawnNpc.name}
+                    <span className="text-[10px] font-normal text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/20">
+                      {currentDistrict}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-300 line-clamp-1">{spawnNpc.title}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Limiit: {activeSpawn.rewardCap - activeSpawn.timesInteracted}/{activeSpawn.rewardCap} käiku sellel tunnil
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  soundManager.playTap();
+                  setSelectedNPCForChat(spawnNpc);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black font-extrabold text-xs transition shadow-lg shadow-amber-500/20 shrink-0"
+              >
+                Räägi
+              </button>
+            </div>
+
+            {/* 3 Core Actions Preview */}
+            <div className="grid grid-cols-3 gap-1.5 my-2.5 pt-2 border-t border-white/10 text-center">
+              <div className="bg-[#12151a] p-2 rounded-xl border border-emerald-500/20">
+                <div className="text-[10px] font-bold text-emerald-400">Väike töö</div>
+                <div className="text-xs font-black text-white mt-0.5">+24 kr</div>
+                <div className="text-[9px] text-slate-400">0 kulu • 100%</div>
+              </div>
+
+              <div className="bg-[#12151a] p-2 rounded-xl border border-amber-500/20">
+                <div className="text-[10px] font-bold text-amber-400">Kauplemine</div>
+                <div className="text-xs font-black text-white mt-0.5">+26 kr</div>
+                <div className="text-[9px] text-slate-400">12 kr kulu • netotulu</div>
+              </div>
+
+              <div className="bg-[#12151a] p-2 rounded-xl border border-rose-500/20">
+                <div className="text-[10px] font-bold text-rose-400">Riskantne ots</div>
+                <div className="text-xs font-black text-white mt-0.5">+65 kr</div>
+                <div className="text-[9px] text-slate-400">5 kr tagatis • 60%</div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400">
+              <span>{activeQuest ? `Põhilugu: ${activeQuest.title}` : 'Vali tegevus ja teeni vahendeid'}</span>
+              <button
+                onClick={onOpenRadar}
+                className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-0.5"
+              >
+                Vaata radarilt <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ) : activeQuest ? (
           <div>
             <h3 className="text-base font-bold text-white mb-1">{activeQuest.title}</h3>
             <p className="text-xs text-slate-300 leading-relaxed mb-3 line-clamp-2">

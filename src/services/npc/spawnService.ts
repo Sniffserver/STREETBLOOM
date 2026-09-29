@@ -37,10 +37,10 @@ export function getCurrentTimeSlot(date = new Date()): string {
  * 3. Riskantne ots (Risky gig): p=0.60, R=65, C=5, L=15 => E = 28 kr (High variance, G=3/day)
  * 4. Looülesanne (Story quest): Measured by contacts, access, project materials, reputation
  */
-export function generateInteractionChoices(npcId: string, spawnId: string): InteractionChoice[] {
+export function generateInteractionChoices(npcId: string, spawnId: string, npc?: NPC): InteractionChoice[] {
   switch (npcId) {
-    case 'npc-marta':
-      return [
+    case 'npc-marta': {
+      const choices: InteractionChoice[] = [
         {
           id: `${spawnId}-job`,
           title: 'Väike töö: Aita kohviku hommikuses ettevalmistuses',
@@ -105,6 +105,27 @@ export function generateInteractionChoices(npcId: string, spawnId: string): Inte
           outcomeText: 'Marta usaldab sulle vana joonise Kalamaja võrgustiku kohta ning märgib kaardile uue kontakti.',
         },
       ];
+
+      // Branching: unlocked action if player has proven themselves on prior courier run
+      if (npc?.knownSecrets?.includes('PROVEN_COURIER')) {
+        choices.push({
+          id: `${spawnId}-master-courier`,
+          title: 'Usaldusisiku ülesanne: Varjulille konfidentsiaalne saadetis',
+          description: 'Tänu su eelmisele edukale Kalaranna otsale usaldab Marta sulle otsetee Vanalinna arhiivi.',
+          category: 'story',
+          turnCost: 1,
+          cashCost: 0,
+          cashReward: 45,
+          failureLoss: 0,
+          successProbability: 1.0,
+          reputationChange: 6,
+          timeMinutes: 8,
+          outcomeText: 'Marta noogutab tunnustavalt: "Kalarannas räägiti sinu kiirusest tõtt. Siin on lubatud eritasu 45 kr."',
+        });
+      }
+
+      return choices;
+    }
 
     case 'npc-otto':
       return [
@@ -332,6 +353,6 @@ export function getDeterministicSpawnForDistrict(
     rewardCap: 3,          // max 3 rewarded interactions per spawn
     timesInteracted: 0,
     storyState: 'available',
-    choices: generateInteractionChoices(selectedNpc.id, spawnId),
+    choices: generateInteractionChoices(selectedNpc.id, spawnId, selectedNpc),
   };
 }

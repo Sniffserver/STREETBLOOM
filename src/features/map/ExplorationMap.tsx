@@ -29,6 +29,7 @@ export const ExplorationMap: React.FC<ExplorationMapProps> = ({ onSelectNPC, onS
     streets,
     places,
     npcs,
+    activeSpawn,
     settings,
     isSimulatingWalk,
     toggleSimulatedWalk,
@@ -320,18 +321,35 @@ export const ExplorationMap: React.FC<ExplorationMapProps> = ({ onSelectNPC, onS
       const slot = npc.schedule.find(
         (s) => currentHour >= s.startHour && currentHour < s.endHour
       ) || npc.schedule[0];
+      const isActive = activeSpawn?.npcId === npc.id;
 
       const el = document.createElement('div');
       el.className = 'group relative flex flex-col items-center cursor-pointer transition-transform hover:scale-115 active:scale-95';
       el.innerHTML = `
-        <div class="flex items-center gap-1 px-1.5 py-0.5 mb-1 rounded-full bg-slate-900/90 border border-purple-500/40 text-[10px] font-medium text-purple-200 shadow-md whitespace-nowrap">
+        <div class="flex items-center gap-1 px-1.5 py-0.5 mb-1 rounded-full ${
+          isActive
+            ? 'bg-amber-950/90 border border-amber-400 text-amber-200 ring-2 ring-amber-400/40 animate-pulse'
+            : 'bg-slate-900/90 border border-purple-500/40 text-purple-200'
+        } text-[10px] font-medium shadow-md whitespace-nowrap">
           <span>${npc.avatar}</span>
           <span>${npc.name}</span>
+          ${isActive ? '<span class="text-[9px] text-amber-300 font-extrabold ml-0.5">★</span>' : ''}
         </div>
-        <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 to-pink-500 border-2 border-purple-300 flex items-center justify-center shadow-lg shadow-purple-600/40 text-base">
-          ${npc.avatar}
+        <div class="relative flex items-center justify-center">
+          ${
+            isActive
+              ? '<div class="absolute w-12 h-12 rounded-full bg-amber-400/30 animate-ping pointer-events-none"></div>'
+              : ''
+          }
+          <div class="w-8 h-8 rounded-full ${
+            isActive
+              ? 'bg-gradient-to-tr from-amber-500 to-orange-600 border-2 border-amber-200 shadow-amber-500/50'
+              : 'bg-gradient-to-tr from-purple-600 to-pink-500 border-2 border-purple-300 shadow-purple-600/40'
+          } flex items-center justify-center shadow-lg text-base">
+            ${npc.avatar}
+          </div>
         </div>
-        <div class="w-1.5 h-1.5 rounded-full bg-purple-400 mt-0.5"></div>
+        <div class="w-1.5 h-1.5 rounded-full ${isActive ? 'bg-amber-400' : 'bg-purple-400'} mt-0.5"></div>
       `;
 
       el.addEventListener('click', () => {
@@ -345,7 +363,7 @@ export const ExplorationMap: React.FC<ExplorationMapProps> = ({ onSelectNPC, onS
 
       npcMarkersRef.current.push(marker);
     });
-  }, [npcs, mapLoaded]);
+  }, [npcs, activeSpawn, mapLoaded]);
 
   // Create & Update Place Markers
   useEffect(() => {

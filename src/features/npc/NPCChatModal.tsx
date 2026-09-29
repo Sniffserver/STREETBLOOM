@@ -64,7 +64,7 @@ export const NPCChatModal: React.FC<NPCChatModalProps> = ({ npc, onClose }) => {
   // Available structured choices for this character
   const choices: InteractionChoice[] = activeSpawn && activeSpawn.npcId === npc.id && activeSpawn.choices
     ? activeSpawn.choices
-    : generateInteractionChoices(npc.id, activeSpawn?.spawnId || `spn-${npc.id}`);
+    : generateInteractionChoices(npc.id, activeSpawn?.spawnId || `spn-${npc.id}`, npc);
 
   // Determine current schedule slot
   useEffect(() => {
@@ -74,12 +74,25 @@ export const NPCChatModal: React.FC<NPCChatModalProps> = ({ npc, onClose }) => {
     ) || npc.schedule[0];
     setCurrentScheduleSlot(slot);
 
-    // Initial greeting
+    // Initial greeting with dynamic narrative memory acknowledgment of prior player choices
+    let initialGreeting = npc.greeting;
+    if (npc.memories && npc.memories.length > 0) {
+      if (npc.knownSecrets?.includes('PROVEN_COURIER')) {
+        initialGreeting = `Näe, kes tuleb! Kalaranna sadamast tulid kuuldused su osavusest. Tänavad usaldavad sind nüüd rohkem — mul on sulle ka usaldusisiku erisaadetis!`;
+      } else if (npc.knownSecrets?.includes('PROVEN_TRADER')) {
+        initialGreeting = `Tere jälle! See eelmine vahendatud toorainepartii läks siin hästi loosi. Oled alati usaldusväärne partner.`;
+      } else if (npc.knownSecrets?.includes('HELPED_SHOP')) {
+        initialGreeting = `Tere taas! Tänu sinu eelmisele abikäele liiguvad meil asjad palju ladusamalt. Kuidas saame täna teineteisele kasulikud olla?`;
+      } else if (npc.memories[0]?.includes('Ebaõnnestus')) {
+        initialGreeting = `Pea püsti, tagasilööke juhtub igaühel! Tänavatel loeb see, kes suudab uuesti alustada. Vaatame midagi kindlamat.`;
+      }
+    }
+
     setMessages([
       {
         id: 'msg-greet',
         sender: 'npc',
-        text: npc.greeting,
+        text: initialGreeting,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       },
     ]);

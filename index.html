@@ -5,18 +5,41 @@
     <script>
       // Per AI Studio environment constraints: HMR is disabled in preview iframe, ignore Vite WebSocket connection errors
       (function () {
-        const origConsoleError = console.error;
-        console.error = function (...args) {
-          if (
-            args.length > 0 &&
-            typeof args[0] === 'string' &&
-            (args[0].includes('[vite]') || args[0].toLowerCase().includes('websocket'))
-          ) {
-            console.debug(...args);
-            return;
+        function shouldSuppress(arg) {
+          if (!arg) return false;
+          try {
+            const str = typeof arg === 'string' ? arg : (arg.message || String(arg) || JSON.stringify(arg));
+            return str.includes('[vite]') || str.toLowerCase().includes('websocket') || str.includes('ws://') || str.includes('wss://');
+          } catch {
+            return false;
           }
-          origConsoleError.apply(console, args);
+        }
+
+        const origError = console.error;
+        console.error = function (...args) {
+          if (args.some(shouldSuppress)) return;
+          origError.apply(console, args);
         };
+
+        const origWarn = console.warn;
+        console.warn = function (...args) {
+          if (args.some(shouldSuppress)) return;
+          origWarn.apply(console, args);
+        };
+
+        window.addEventListener('error', function (event) {
+          if (shouldSuppress(event.message) || shouldSuppress(event.error)) {
+            event.stopImmediatePropagation();
+            event.preventDefault();
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (event) {
+          if (shouldSuppress(event.reason)) {
+            event.stopImmediatePropagation();
+            event.preventDefault();
+          }
+        }, true);
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />

@@ -18,6 +18,8 @@ import {
   AccuracyTier,
   InteractionCommand,
   InteractionExecutionResult,
+  InteractionChoice,
+  PlayerSkills,
   NPCSpawnEvent,
   DistrictProject,
   PlayerNetwork,
@@ -1136,6 +1138,63 @@ export class GameEngine {
     };
   }
 
+  public checkActionEligibility(
+    choice: InteractionChoice,
+    spawn?: NPCSpawnEvent | null
+  ): { eligible: boolean; reason?: string } {
+    this.checkDailyReset();
+
+    // 1. Daily limit for risk gigs
+    if (choice.category === 'risk_gig') {
+      const gigLimit = choice.dailyLimit || 3;
+      if ((this.profile.dailyRiskGigsPerformedToday || 0) >= gigLimit) {
+        return {
+          eligible: false,
+          reason: `Päevane riskantsete otsade limiit (${gigLimit}/${gigLimit}) on täis.`,
+        };
+      }
+    }
+
+    // 2. Action turns check
+    if (this.profile.actionTurns < choice.turnCost) {
+      return {
+        eligible: false,
+        reason: `Vajad ${choice.turnCost} käiku (sul on ${this.profile.actionTurns}).`,
+      };
+    }
+
+    // 3. Upfront cash cost check
+    const upfrontCost = choice.cashCost || 0;
+    if (upfrontCost > 0 && this.profile.cash < upfrontCost) {
+      return {
+        eligible: false,
+        reason: `Vajad ${upfrontCost} kr kapitali (sul on ${this.profile.cash} kr).`,
+      };
+    }
+
+    // 4. Required skill check
+    if (choice.requiredSkill) {
+      const skillLevel = this.profile.skills[choice.requiredSkill.skill] || 1;
+      if (skillLevel < choice.requiredSkill.level) {
+        return {
+          eligible: false,
+          reason: `Nõutav oskus: ${choice.requiredSkill.skill} tase ${choice.requiredSkill.level} (sul on ${skillLevel}).`,
+        };
+      }
+    }
+
+    // 5. Spawn reward cap check
+    const effectiveSpawn = spawn ?? this.activeSpawn;
+    if (effectiveSpawn && effectiveSpawn.timesInteracted >= effectiveSpawn.rewardCap) {
+      return {
+        eligible: false,
+        reason: `Selle kontakti tunnipõhine suhtluslimiit (${effectiveSpawn.rewardCap}) on täis.`,
+      };
+    }
+
+    return { eligible: true };
+  }
+
   public async executeInteraction(command: InteractionCommand): Promise<InteractionExecutionResult> {
     this.checkDailyReset();
 
@@ -1166,67 +1225,19 @@ export class GameEngine {
       };
     }
 
-    // 3. Daily limit check for risky gig (G in formula)
-    if (choice.category === 'risk_gig') {
-      const gigLimit = choice.dailyLimit || 3;
-      if ((this.profile.dailyRiskGigsPerformedToday || 0) >= gigLimit) {
-        return {
-          success: false,
-          message: `Päevane riskantsete otsade limiit (${gigLimit}/${gigLimit}) on täis. Tule tagasi homme või vali väike töö!`,
-          cashDelta: 0,
-          reputationDelta: 0,
-          turnCost: 0,
-        };
-      }
-    }
-
-    // 4. Action turns verification
-    if (this.profile.actionTurns < choice.turnCost) {
+    // Check authoritative eligibility
+    const eligibility = this.checkActionEligibility(choice, this.activeSpawn);
+    if (!eligibility.eligible) {
       return {
         success: false,
-        message: `Sul pole piisavalt käike (${this.profile.actionTurns}/${choice.turnCost}). Kõnni samme või oota käigu taastumist.`,
+        message: eligibility.reason || 'Tegevus pole hetkel kättesaadav.',
         cashDelta: 0,
         reputationDelta: 0,
         turnCost: 0,
       };
     }
 
-    // 5. Upfront cash cost check (C in formula)
     const upfrontCost = choice.cashCost || 0;
-    if (upfrontCost > 0 && this.profile.cash < upfrontCost) {
-      return {
-        success: false,
-        message: `Sul pole piisavalt raha (${this.profile.cash}/${upfrontCost} kr vajalik ettemaksuks/tooraineks).`,
-        cashDelta: 0,
-        reputationDelta: 0,
-        turnCost: 0,
-      };
-    }
-
-    // 6. Skill requirements check
-    if (choice.requiredSkill) {
-      const skillLevel = this.profile.skills[choice.requiredSkill.skill] || 1;
-      if (skillLevel < choice.requiredSkill.level) {
-        return {
-          success: false,
-          message: `Nõutav oskus puudub: ${choice.requiredSkill.skill} tase ${choice.requiredSkill.level} (sul on ${skillLevel}).`,
-          cashDelta: 0,
-          reputationDelta: 0,
-          turnCost: 0,
-        };
-      }
-    }
-
-    // 7. Spawn reward cap check
-    if (this.activeSpawn && this.activeSpawn.timesInteracted >= this.activeSpawn.rewardCap) {
-      return {
-        success: false,
-        message: 'Selleks tunniks on selle kontaktiga limiit saavutatud. Tule tagasi uuel ajavahemikul.',
-        cashDelta: 0,
-        reputationDelta: 0,
-        turnCost: 0,
-      };
-    }
 
     // 8. Deduct action turn cost
     this.profile.actionTurns -= choice.turnCost;
@@ -1294,6 +1305,34 @@ export class GameEngine {
 
     // 12. Mark idempotent interaction ID
     this.processedInteractionIds.add(command.interactionId);
+
+    // 13. Branching NPC memory and relationship update
+    const targetNpcId = this.activeSpawn?.npcId || (command.spawnId ? command.spawnId.replace(/^spn-/, '') : null);
+    if (targetNpcId) {
+      const npc = this.npcs.find((n) => n.id === targetNpcId || command.spawnId.includes(n.id));
+      if (npc) {
+        if (!npc.memories) npc.memories = [];
+        const memEntry = `Valik: ${choice.title} - ${isSuccess ? 'Õnnestus (+ ' + (choice.cashReward || 0) + ' kr)' : 'Ebaõnnestus'}`;
+        npc.memories.unshift(memEntry);
+        if (npc.memories.length > 10) npc.memories.pop();
+
+        if (!npc.knownSecrets) npc.knownSecrets = [];
+        if (choice.category === 'risk_gig' && isSuccess && !npc.knownSecrets.includes('PROVEN_COURIER')) {
+          npc.knownSecrets.push('PROVEN_COURIER');
+        } else if (choice.category === 'trade' && isSuccess && !npc.knownSecrets.includes('PROVEN_TRADER')) {
+          npc.knownSecrets.push('PROVEN_TRADER');
+        } else if (choice.category === 'small_job' && !npc.knownSecrets.includes('HELPED_SHOP')) {
+          npc.knownSecrets.push('HELPED_SHOP');
+        }
+
+        // Modest relationship gain on successful completion
+        npc.relationshipPoints += (isSuccess ? 2 : 1);
+        if (npc.relationshipPoints >= 10 && npc.relationshipLevel < 6) {
+          npc.relationshipLevel += 1;
+          npc.relationshipPoints -= 10;
+        }
+      }
+    }
 
     // Companion reaction
     this.companion.happiness = Math.min(100, Math.max(0, this.companion.happiness + (isSuccess ? 5 : -3)));

@@ -22,6 +22,9 @@ interface RadarItem {
   distanceMeters: number;
   district: string;
   badge?: string;
+  spawnId?: string;
+  availability?: string;
+  isActiveSpawn?: boolean;
   raw: NPC | Place | Quest;
 }
 
@@ -32,6 +35,7 @@ export const RadarListScreen: React.FC = () => {
     places,
     quests,
     currentDistrict,
+    activeSpawn,
     accuracyTier,
     setSelectedNPCForChat,
     reportSafetyIssue,
@@ -43,7 +47,7 @@ export const RadarListScreen: React.FC = () => {
   // Compile items with distance
   const items: RadarItem[] = [];
 
-  // 1. NPCs
+  // 1. NPCs (including active spawn encounter metadata)
   npcs.forEach((npc) => {
     const dist = Math.round(
       haversineDistanceMeters(
@@ -53,6 +57,11 @@ export const RadarListScreen: React.FC = () => {
         npc.longitude
       )
     );
+    const isActive = activeSpawn?.npcId === npc.id;
+    const availability = isActive
+      ? `${activeSpawn.rewardCap - activeSpawn.timesInteracted}/${activeSpawn.rewardCap} käiku saadaval`
+      : undefined;
+
     items.push({
       id: npc.id,
       type: 'npc',
@@ -61,6 +70,9 @@ export const RadarListScreen: React.FC = () => {
       distanceMeters: dist,
       district: npc.district,
       badge: npc.avatar,
+      spawnId: isActive ? activeSpawn.spawnId : undefined,
+      availability,
+      isActiveSpawn: isActive,
       raw: npc,
     });
   });
@@ -220,11 +232,26 @@ export const RadarListScreen: React.FC = () => {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-bold text-white truncate">{item.title}</h3>
+                    {item.isActiveSpawn && (
+                      <span className="text-[10px] bg-amber-500/20 border border-amber-500/40 text-amber-300 font-extrabold px-1.5 py-0.5 rounded">
+                        Aktiivne võimalus
+                      </span>
+                    )}
                     <span className="text-[10px] text-slate-400 uppercase font-semibold px-1.5 py-0.5 rounded bg-white/5">
                       {item.district}
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 truncate mt-0.5">{item.subtitle}</p>
+                  {item.spawnId && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[9px] font-mono text-slate-400">{item.spawnId}</span>
+                      {item.availability && (
+                        <span className="text-[10px] text-emerald-400 font-medium">
+                          • {item.availability}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 

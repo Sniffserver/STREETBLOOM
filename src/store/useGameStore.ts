@@ -15,6 +15,7 @@ import {
   AccuracyTier,
   InteractionCommand,
   InteractionExecutionResult,
+  InteractionChoice,
   DistrictProject,
   PlayerNetwork,
 } from '../types/game';
@@ -79,6 +80,7 @@ interface GameState {
 
   // Controlled Command Flow
   executeInteraction: (command: InteractionCommand) => Promise<InteractionExecutionResult>;
+  checkActionEligibility: (choice: InteractionChoice, spawn?: NPCSpawnEvent | null) => { eligible: boolean; reason?: string };
 
   // Game Entities
   profile: PlayerProfile;
@@ -318,6 +320,10 @@ export const useGameStore = create<GameState>((set, get) => {
       const res = await gameEngine.executeInteraction(command);
       get().syncWithEngine();
       return res;
+    },
+
+    checkActionEligibility: (choice, spawn) => {
+      return gameEngine.checkActionEligibility(choice, spawn);
     },
 
     syncWithEngine: () => {
