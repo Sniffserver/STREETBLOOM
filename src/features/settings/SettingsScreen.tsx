@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useGameStore } from '../../store/useGameStore';
 import {
   Settings,
@@ -11,19 +11,32 @@ import {
   Sparkles,
   Info,
   Globe,
+  Footprints,
+  Lock,
+  Activity,
+  Moon,
 } from 'lucide-react';
 import { getTranslation } from '../../locales/i18n';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { localStore } from '../../services/storage/db';
 import { soundManager } from '../../audio/soundManager';
+import { PrivacySettingsModal } from '../privacy/PrivacySettingsModal';
+import { WalkModeOverlay } from '../accessibility/WalkModeOverlay';
+import { DevObservatoryModal } from '../dev/DevObservatoryModal';
+import { SessionSummaryModal, SessionSummaryData } from '../session/SessionSummaryModal';
 
 interface SettingsScreenProps {
   onOpenDevPanel?: () => void;
 }
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenDevPanel }) => {
-  const { settings, updateSettings, setLanguage, updateLocation, setIsTracking } = useGameStore();
+  const { settings, updateSettings, setLanguage, updateLocation, setIsTracking, profile, streets, companion } = useGameStore();
   const t = getTranslation(settings.language);
+
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [showWalkMode, setShowWalkMode] = useState(false);
+  const [showObservatory, setShowObservatory] = useState(false);
+  const [showSessionSummary, setShowSessionSummary] = useState(false);
 
   const handleToggleSound = () => {
     const next = !settings.soundEnabled;
@@ -78,6 +91,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenDevPanel }
     URL.revokeObjectURL(url);
   };
 
+  const currentSummary: SessionSummaryData = {
+    distanceWalkedKm: (profile.totalDistanceMeters || 1200) / 1000,
+    streetsDiscoveredCount: streets.filter((s) => s.discovered).length,
+    metNPCNames: ['Jaanus', 'Marta', 'Ketter'],
+    itemsFoundNames: ['Vana kassett'],
+    favoriteDistrict: 'Kalamaja',
+    companionThought: companion.currentThought || 'Mulle meeldisid vanad puitmajad.',
+    unexplainedHookText: 'Üks salapärane signaal jäi Telliskivi kangialuses lahendamata...',
+  };
+
   return (
     <div className="w-full h-full flex flex-col bg-[#0a0d14] text-slate-100 overflow-y-auto pb-28 px-4 pt-16">
       <div className="max-w-md mx-auto w-full flex flex-col gap-5">
@@ -87,6 +110,33 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenDevPanel }
           <p className="text-xs text-slate-400 mt-0.5">
             Kohanda oma mängukogemust, privaatsust ja salvestisi.
           </p>
+        </div>
+
+        {/* Walk Mode & Session Summary Quick Actions */}
+        <div className="grid grid-cols-2 gap-2.5">
+          <button
+            onClick={() => {
+              soundManager.playTap();
+              setShowWalkMode(true);
+            }}
+            className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-left transition flex flex-col gap-1"
+          >
+            <Footprints className="w-5 h-5 text-amber-400" />
+            <span className="text-xs font-bold text-white">Kõnnirežiim</span>
+            <span className="text-[10px] text-amber-200">Suured nupud & turvaline ekraan</span>
+          </button>
+
+          <button
+            onClick={() => {
+              soundManager.playTap();
+              setShowSessionSummary(true);
+            }}
+            className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-left transition flex flex-col gap-1"
+          >
+            <Moon className="w-5 h-5 text-purple-400" />
+            <span className="text-xs font-bold text-white">Rännaku Kokkuvõte</span>
+            <span className="text-[10px] text-purple-200">Vaata tänase tee emotsionaalset lugu</span>
+          </button>
         </div>
 
         {/* PWA Install Card */}
@@ -226,12 +276,29 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenDevPanel }
           </div>
         </div>
 
-        {/* Data & Backup */}
+        {/* Privacy & Account Data */}
         <div className="p-4 rounded-3xl game-glass-panel border-white/5 flex flex-col gap-2.5">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Shield className="w-3.5 h-3.5 text-cyan-400" />
-            Salvestised & Andmed
+            Salvestised & Privaatsus
           </h3>
+
+          <button
+            onClick={() => {
+              soundManager.playTap();
+              setShowPrivacyModal(true);
+            }}
+            className="flex items-center justify-between p-3 rounded-2xl bg-white/5 hover:bg-white/10 transition text-left"
+          >
+            <div className="flex items-center gap-2.5">
+              <Lock className="w-4 h-4 text-cyan-400" />
+              <div>
+                <p className="text-xs font-bold text-white">Privaatsuskontrollid</p>
+                <p className="text-[10px] text-slate-400">Halda asukoha ajalugu ja AI mälu</p>
+              </div>
+            </div>
+            <span className="text-xs font-bold text-cyan-400">Seadista</span>
+          </button>
 
           <button
             onClick={handleExportData}
@@ -262,16 +329,40 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenDevPanel }
           </button>
         </div>
 
-        {/* Developer Debug Panel Link */}
-        {onOpenDevPanel && (
+        {/* Developer Observatory & Debug Panel Links */}
+        <div className="flex flex-col gap-2 pt-1">
           <button
-            onClick={onOpenDevPanel}
-            className="w-full py-2.5 rounded-2xl bg-slate-800/80 hover:bg-slate-700/80 text-xs font-bold text-amber-300 border border-amber-400/20"
+            onClick={() => {
+              soundManager.playTap();
+              setShowObservatory(true);
+            }}
+            className="w-full py-2.5 rounded-2xl bg-cyan-950/60 hover:bg-cyan-900/60 text-xs font-bold text-cyan-300 border border-cyan-500/30 flex items-center justify-center gap-2"
           >
-            🛠️ Ava Arendaja Tööriistad (Debug Mode)
+            <Activity className="w-4 h-4" />
+            <span>Arendaja Observatoorium & Kõnnisimulaator</span>
           </button>
-        )}
+
+          {onOpenDevPanel && (
+            <button
+              onClick={onOpenDevPanel}
+              className="w-full py-2.5 rounded-2xl bg-slate-800/80 hover:bg-slate-700/80 text-xs font-bold text-amber-300 border border-amber-400/20"
+            >
+              🛠️ Ava Arendaja Tööriistad (Debug Mode)
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Modals */}
+      {showPrivacyModal && <PrivacySettingsModal onClose={() => setShowPrivacyModal(false)} />}
+      {showWalkMode && <WalkModeOverlay onExitWalkMode={() => setShowWalkMode(false)} />}
+      {showObservatory && <DevObservatoryModal onClose={() => setShowObservatory(false)} />}
+      {showSessionSummary && (
+        <SessionSummaryModal
+          summary={currentSummary}
+          onClose={() => setShowSessionSummary(false)}
+        />
+      )}
     </div>
   );
 };
