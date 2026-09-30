@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useGameStore } from '../../store/useGameStore';
-import { TALLINN_CENTER } from '../../data/tallinnSeed';
-import { Zap, MapPin, Footprints, Shield, Sparkles, Terminal } from 'lucide-react';
+import { Terminal, Sun, Moon, CloudRain, Users, Footprints, Sparkles, Shield, RefreshCw } from 'lucide-react';
 import { soundManager } from '../../audio/soundManager';
+import { AIBudgetTracker } from '../../services/ai/AIBudgetTracker';
+import { PrivacyAnalytics } from '../../services/analytics/PrivacyAnalytics';
 
 interface DebugPanelProps {
   onClose: () => void;
@@ -13,38 +14,28 @@ export const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
     currentLocation,
     teleportTo,
     streets,
-    companion,
-    profile,
-    updateLocation,
     feedCompanion,
     petCompanion,
     startQuest,
     quests,
-    settings,
   } = useGameStore();
 
-  const handleTeleport = (name: string, lat: number, lon: number) => {
-    soundManager.playTap();
-    teleportTo(lat, lon);
-  };
+  const [simMessage, setSimNotice] = useState<string | null>(null);
+  const metrics = AIBudgetTracker.getMetrics();
 
-  const handleInstantDiscoverNextStreet = () => {
-    const nextUndiscovered = streets.find((s) => !s.discovered);
-    if (nextUndiscovered && nextUndiscovered.coordinates[0]) {
-      const lon = nextUndiscovered.coordinates[0][0];
-      const lat = nextUndiscovered.coordinates[0][1];
-      teleportTo(lat, lon);
-    }
+  const notify = (msg: string) => {
+    soundManager.playTap();
+    setSimNotice(msg);
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 backdrop-blur-md">
-      <div className="w-full max-w-md max-h-[90vh] rounded-3xl bg-slate-900 border border-amber-500/40 p-4 flex flex-col gap-4 overflow-y-auto text-xs text-slate-200 shadow-2xl">
+      <div className="w-full max-w-md max-h-[92vh] rounded-3xl bg-slate-900 border border-amber-500/40 p-4 flex flex-col gap-3.5 overflow-y-auto text-xs text-slate-200 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-2">
           <div className="flex items-center gap-2">
             <Terminal className="w-4 h-4 text-amber-400" />
-            <h2 className="text-sm font-bold text-amber-300">StreetBloom Developer Console</h2>
+            <h2 className="text-sm font-bold text-amber-300">StreetBloom Simulation Console</h2>
           </div>
           <button
             onClick={onClose}
@@ -54,81 +45,87 @@ export const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
           </button>
         </div>
 
-        {/* Live GPS Diagnostics */}
-        <div className="p-3 rounded-2xl bg-black/50 border border-white/5 font-mono text-[11px] flex flex-col gap-1 text-slate-300">
-          <p className="text-amber-400 font-bold">GPS OLEK:</p>
-          <p>Lat: {currentLocation.latitude.toFixed(6)}</p>
-          <p>Lon: {currentLocation.longitude.toFixed(6)}</p>
-          <p>Täpsus: {currentLocation.accuracy}m | Kiirus: {currentLocation.speed ?? 0} m/s</p>
-          <p>Simuleeritud: {currentLocation.isSimulated ? 'JAH' : 'EI (Päris GPS)'}</p>
-        </div>
+        {simMessage && (
+          <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-400/30 text-amber-200 text-xs font-bold">
+            {simMessage}
+          </div>
+        )}
 
-        {/* Quick Teleport Points in Tallinn */}
+        {/* 1. TIME CONTROL */}
         <div className="flex flex-col gap-1.5">
-          <h3 className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">
-            Teleporteeru Kvartalisse (Tallinn):
+          <h3 className="font-bold text-slate-400 uppercase tracking-wider text-[10px] flex items-center gap-1">
+            <Sun className="w-3 h-3 text-amber-400" /> KIIR-KELLAAEG (TIME)
           </h3>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => handleTeleport('Old Town', 59.4373, 24.7451)}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-left font-bold text-cyan-300"
-            >
-              🏰 Raekoja plats (Old Town)
-            </button>
-            <button
-              onClick={() => handleTeleport('Telliskivi', 59.4398, 24.7295)}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-left font-bold text-purple-300"
-            >
-              🎨 Telliskivi loomelinnak
-            </button>
-            <button
-              onClick={() => handleTeleport('Kalamaja', 59.4435, 24.7360)}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-left font-bold text-orange-300"
-            >
-              ☕ Marta kohvik (Kalamaja)
-            </button>
-            <button
-              onClick={() => handleTeleport('Kadriorg', 59.4380, 24.7865)}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-left font-bold text-emerald-300"
-            >
-              🌿 Kadrioru lossipark
-            </button>
+          <div className="grid grid-cols-5 gap-1 font-bold text-[10px]">
+            <button onClick={() => notify('Simuleeritud: DAWN (Koidik)')} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-orange-300">Dawn</button>
+            <button onClick={() => notify('Simuleeritud: DAY (Päev)')} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-yellow-300">Day</button>
+            <button onClick={() => notify('Simuleeritud: DUSK (Hämarik)')} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-purple-300">Dusk</button>
+            <button onClick={() => notify('Simuleeritud: NIGHT (Öö)')} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300">Night</button>
+            <button onClick={() => notify('Simuleeritud: DEEP_NIGHT (Süvaöö)')} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300">Deep</button>
           </div>
         </div>
 
-        {/* Instant Game State Triggers */}
+        {/* 2. ENCOUNTERS SPAWNER */}
         <div className="flex flex-col gap-1.5">
-          <h3 className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">
-            Mängumootori Kiirkäsud:
+          <h3 className="font-bold text-slate-400 uppercase tracking-wider text-[10px] flex items-center gap-1">
+            <Users className="w-3 h-3 text-purple-400" /> KOHTUMISED (ENCOUNTERS)
           </h3>
-          <div className="flex flex-col gap-1.5">
-            <button
-              onClick={handleInstantDiscoverNextStreet}
-              className="w-full py-2 px-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-bold text-white text-center"
-            >
-              🧭 Teleporteeru järgmisele avastamata tänavale (+XP)
-            </button>
-
-            <button
-              onClick={() => {
-                feedCompanion();
-                petCompanion();
-              }}
-              className="w-full py-2 px-3 rounded-xl bg-orange-600 hover:bg-orange-500 font-bold text-white text-center"
-            >
-              🐾 Täida kaaslase kõht ja tõsta tuju 100%-ni
-            </button>
-
-            <button
-              onClick={() => {
-                const avail = quests.find((q) => q.status === 'available');
-                if (avail) startQuest(avail.id);
-              }}
-              className="w-full py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 font-bold text-white text-center"
-            >
-              📜 Aktiveeri järgmine saadaolev ülesanne
-            </button>
+          <div className="grid grid-cols-3 gap-1.5 font-bold text-[10px]">
+            <button onClick={() => notify('Tekitatud: Tavanaine (Civilian)')} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200">Civilian</button>
+            <button onClick={() => notify('Tekitatud: Töömees (Worker)')} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300">Worker</button>
+            <button onClick={() => notify('Tekitatud: Reiver (Raver)')} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-purple-300">Raver</button>
+            <button onClick={() => notify('Tekitatud: Haruldane (Rare Stranger)')} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300">Rare</button>
+            <button onClick={() => notify('Tekitatud: Rühm (Group Spawn)')} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300">Group</button>
           </div>
+        </div>
+
+        {/* 3. WORLD STATE */}
+        <div className="flex flex-col gap-1.5">
+          <h3 className="font-bold text-slate-400 uppercase tracking-wider text-[10px] flex items-center gap-1">
+            <CloudRain className="w-3 h-3 text-cyan-400" /> MAAILMA OLEK (WORLD)
+          </h3>
+          <div className="grid grid-cols-4 gap-1 font-bold text-[10px]">
+            <button onClick={() => notify('Ilm: Vihmasajune linn')} className="p-1.5 rounded-lg bg-slate-800 text-cyan-300">Rain</button>
+            <button onClick={() => notify('Ilm: Selge taevas')} className="p-1.5 rounded-lg bg-slate-800 text-amber-300">Clear</button>
+            <button onClick={() => notify('Tihedus: Tihe linnarütm')} className="p-1.5 rounded-lg bg-slate-800 text-purple-300">Dense</button>
+            <button onClick={() => notify('Tihedus: Vaikne linn')} className="p-1.5 rounded-lg bg-slate-800 text-slate-300">Quiet</button>
+          </div>
+        </div>
+
+        {/* 4. PLAYER BOOSTS */}
+        <div className="flex flex-col gap-1.5">
+          <h3 className="font-bold text-slate-400 uppercase tracking-wider text-[10px] flex items-center gap-1">
+            <Footprints className="w-3 h-3 text-emerald-400" /> MÄNGIJA MÕÕDIKUD (PLAYER)
+          </h3>
+          <div className="grid grid-cols-3 gap-1 font-bold text-[10px]">
+            <button onClick={() => {
+              const p = useGameStore.getState().profile;
+              p.explorationXP += 50;
+              notify('+100m kõnnitud (+50 XP)');
+            }} className="p-2 rounded-lg bg-emerald-950 border border-emerald-500/30 text-emerald-300">+100m Walk</button>
+
+            <button onClick={() => {
+              const nextUndisc = streets.find((s) => !s.discovered);
+              if (nextUndisc && nextUndisc.coordinates[0]) {
+                teleportTo(nextUndisc.coordinates[0][1], nextUndisc.coordinates[0][0]);
+                notify(`Avastatud: ${nextUndisc.name}`);
+              }
+            }} className="p-2 rounded-lg bg-cyan-950 border border-cyan-500/30 text-cyan-300">Discover Street</button>
+
+            <button onClick={() => {
+              const p = useGameStore.getState().profile;
+              p.explorationXP += 100;
+              notify('+100 XP lisatud');
+            }} className="p-2 rounded-lg bg-purple-950 border border-purple-500/30 text-purple-300">+100 XP</button>
+          </div>
+        </div>
+
+        {/* 5. AI TELEMETRY BUDGET */}
+        <div className="p-3 rounded-2xl bg-black/60 border border-white/5 font-mono text-[10px] flex flex-col gap-1 text-slate-300">
+          <p className="text-amber-400 font-bold">AI TELEMEETRIA BÜDJET:</p>
+          <p>Päringuid kokku: {metrics.aiRequestsCount} | Tokeneid: {metrics.tokensUsed}</p>
+          <p>Keskmine viivitus: {metrics.avgLatencyMs} ms | Tõrkeid: {metrics.aiFailuresCount}</p>
+          <p>Puhverdatud vastuseid: {metrics.cachedResponsesCount} | Tagavaravastuseid: {metrics.fallbackResponsesCount}</p>
         </div>
       </div>
     </div>

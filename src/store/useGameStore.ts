@@ -18,8 +18,16 @@ import {
   InteractionChoice,
   DistrictProject,
   PlayerNetwork,
+  SimulatedNPCInstance,
+  FactionId,
+  CombatPlayerAction,
+  CombatTurnResult,
+  FictionalTradeItem,
+  NPCActionType,
+  WorldTimeInfo,
 } from '../types/game';
 import { gameEngine } from '../game/engine/gameEngine';
+import { eventBus } from '../game/engine/eventBus';
 import { localStore, GameSettings } from '../services/storage/db';
 import { TALLINN_CENTER } from '../data/tallinnSeed';
 import { Language } from '../locales/i18n';
@@ -29,6 +37,7 @@ export type ActiveScreen =
   | 'dashboard'
   | 'explore'
   | 'radar'
+  | 'memory_map'
   | 'companion'
   | 'npcs'
   | 'quests'
@@ -43,6 +52,10 @@ interface GameState {
   setActiveScreen: (screen: ActiveScreen) => void;
   selectedNPCForChat: NPC | null;
   setSelectedNPCForChat: (npc: NPC | null) => void;
+  selectedSimulatedNPC: SimulatedNPCInstance | null;
+  setSelectedSimulatedNPC: (npc: SimulatedNPCInstance | null) => void;
+  activeEncounterToast: SimulatedNPCInstance | null;
+  setActiveEncounterToast: (toast: SimulatedNPCInstance | null) => void;
   selectedStreetForModal: StreetSegment | null;
   setSelectedStreetForModal: (street: StreetSegment | null) => void;
   celebrationData: {
@@ -59,9 +72,10 @@ interface GameState {
   updateSettings: (partial: Partial<GameSettings>) => void;
   setLanguage: (lang: Language) => void;
 
-  // GPS & Map State
+  // GPS, Time & Map State
   currentLocation: GeoLocation;
   currentDistrict: DistrictName;
+  worldTime: WorldTimeInfo;
   activeSpawn: NPCSpawnEvent | null;
   accuracyTier: AccuracyTier;
   isTracking: boolean;
@@ -77,6 +91,14 @@ interface GameState {
   toggleSimulatedWalk: () => void;
   teleportTo: (lat: number, lon: number) => void;
   reportSafetyIssue: (note?: string) => void;
+
+  // Living City Encounters, Combat & Trade
+  simulatedNPCs: SimulatedNPCInstance[];
+  factionReputation: Record<FactionId, number>;
+  playerCombatHp: { current: number; max: number };
+  executeCombatTurn: (instanceId: string, action: CombatPlayerAction) => CombatTurnResult;
+  executeNPCTrade: (instanceId: string, itemId: string) => { success: boolean; message: string; finalPrice: number; item?: FictionalTradeItem };
+  interactWithSimulatedNPC: (instanceId: string, action: NPCActionType) => { success: boolean; message: string; promoted?: boolean; promotedNPC?: NPC };
 
   // Controlled Command Flow
   executeInteraction: (command: InteractionCommand) => Promise<InteractionExecutionResult>;
@@ -137,6 +159,10 @@ export const useGameStore = create<GameState>((set, get) => {
     setActiveScreen: (screen) => set({ activeScreen: screen }),
     selectedNPCForChat: null,
     setSelectedNPCForChat: (npc) => set({ selectedNPCForChat: npc }),
+    selectedSimulatedNPC: null,
+    setSelectedSimulatedNPC: (npc) => set({ selectedSimulatedNPC: npc }),
+    activeEncounterToast: null,
+    setActiveEncounterToast: (toast) => set({ activeEncounterToast: toast }),
     selectedStreetForModal: null,
     setSelectedStreetForModal: (street) => set({ selectedStreetForModal: street }),
     celebrationData: null,
@@ -154,6 +180,7 @@ export const useGameStore = create<GameState>((set, get) => {
 
     currentLocation: initialLoc,
     currentDistrict: 'Kesklinn',
+    worldTime: gameEngine.getWorldTimeInfo(),
     activeSpawn: null,
     accuracyTier: 'HIGH',
     isTracking: false,
@@ -163,12 +190,49 @@ export const useGameStore = create<GameState>((set, get) => {
     isInitialized: false,
     initializationError: null,
 
+    simulatedNPCs: [],
+    factionReputation: {
+      LOCALS: 10,
+      WORKERS: 5,
+      NIGHTLIFE: 0,
+      STREET: 0,
+      TRADERS: 10,
+      SECURITY: 5,
+      MYSTERIOUS: 0,
+    },
+    playerCombatHp: { current: 50, max: 50 },
+
+    executeCombatTurn: (instanceId, action) => {
+      const res = gameEngine.executeCombatTurn(instanceId, action);
+      get().syncWithEngine();
+      return res;
+    },
+
+    executeNPCTrade: (instanceId, itemId) => {
+      const res = gameEngine.executeNPCTrade(instanceId, itemId);
+      get().syncWithEngine();
+      return res;
+    },
+
+    interactWithSimulatedNPC: (instanceId, action) => {
+      const res = gameEngine.interactWithSimulatedNPC(instanceId, action);
+      get().syncWithEngine();
+      return res;
+    },
+
     initializeGame: async () => {
       set({ isInitializing: true, initializationError: null });
       try {
         await gameEngine.initialize(get().currentLocation);
         set({ isInitialized: true, isInitializing: false });
         get().syncWithEngine();
+
+        eventBus.on('ENCOUNTER_SPAWNED', (inst: any) => {
+          set({
+            activeEncounterToast: inst,
+            simulatedNPCs: [...gameEngine.getSimulatedNPCs()],
+          });
+        });
 
         // Process any buffered locations arriving before initialization
         if (bufferedLocations.length > 0) {
@@ -209,6 +273,8 @@ export const useGameStore = create<GameState>((set, get) => {
         inventory: [...gameEngine.getInventory()],
         achievements: [...gameEngine.getAchievements()],
         quests: [...gameEngine.getQuests()],
+        simulatedNPCs: [...gameEngine.getSimulatedNPCs()],
+        worldTime: gameEngine.getWorldTimeInfo(),
       });
 
       if (outcome.newStreet) {
@@ -341,6 +407,10 @@ export const useGameStore = create<GameState>((set, get) => {
         accuracyTier: gameEngine.getAccuracyTier(get().currentLocation),
         districtProjects: [...gameEngine.getDistrictProjects()],
         playerNetwork: { ...gameEngine.getPlayerNetwork() },
+        simulatedNPCs: [...gameEngine.getSimulatedNPCs()],
+        worldTime: gameEngine.getWorldTimeInfo(),
+        factionReputation: { ...gameEngine.getFactionReputation() },
+        playerCombatHp: { ...gameEngine.getPlayerCombatHp() },
       });
     },
   };

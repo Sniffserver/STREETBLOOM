@@ -196,7 +196,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenDevPanel }
         <div className="p-4 rounded-3xl game-glass-panel border-white/5 flex flex-col gap-3">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-            Helid & Efektid
+            Helid & Ligipääsetavus
           </h3>
 
           <div className="flex items-center justify-between p-3 rounded-2xl bg-white/5">
@@ -208,7 +208,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenDevPanel }
               )}
               <div>
                 <p className="text-xs font-bold text-white">{t.settings.sound}</p>
-                <p className="text-[10px] text-slate-400">Sünteseeritud heliefektid</p>
+                <p className="text-[10px] text-slate-400">Sünteseeritud heliefektid & haptika</p>
               </div>
             </div>
             <button

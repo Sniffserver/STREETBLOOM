@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { getTranslation } from '../../locales/i18n';
 import { SEED_ITEMS } from '../../data/itemsSeed';
+import { soundManager } from '../../audio/soundManager';
 
 type Tab = 'status' | 'behavior' | 'memories' | 'evolution';
 
@@ -49,16 +50,19 @@ export const CompanionScreen: React.FC = () => {
     .filter((it) => it.def?.category === 'snack' && it.count > 0);
 
   const handlePet = () => {
+    soundManager.playCompanionPet();
     petCompanion();
     setSpeechBubble('*Pip teeb nurr-nurr ja paneb silmad kinni.*');
   };
 
   const handleTalk = () => {
+    soundManager.playTap();
     const thought = talkCompanion();
     setSpeechBubble(thought);
   };
 
   const handleFeed = (itemId?: string) => {
+    soundManager.playCompanionFeed();
     const res = feedCompanion(itemId);
     setFeedPickerOpen(false);
     setSpeechBubble(res.message);
@@ -180,7 +184,10 @@ export const CompanionScreen: React.FC = () => {
               </button>
 
               <button
-                onClick={playCompanion}
+                onClick={() => {
+                  soundManager.playTap();
+                  playCompanion();
+                }}
                 className="flex flex-col items-center gap-1.5 p-3 rounded-2xl game-glass-panel border-purple-500/20 hover:border-purple-500/50 active:scale-95 transition"
               >
                 <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center">

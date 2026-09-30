@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useGameStore } from '../../store/useGameStore';
-import { NPC, Place, Quest } from '../../types/game';
+import { NPC, Place, Quest, SimulatedNPCInstance } from '../../types/game';
 import { haversineDistanceMeters } from '../../services/geo/geoUtils';
 import {
   Radio,
@@ -11,12 +11,13 @@ import {
   ChevronRight,
   Filter,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import { soundManager } from '../../audio/soundManager';
 
 interface RadarItem {
   id: string;
-  type: 'npc' | 'place' | 'quest';
+  type: 'npc' | 'place' | 'quest' | 'simulated_npc';
   title: string;
   subtitle: string;
   distanceMeters: number;
@@ -25,19 +26,23 @@ interface RadarItem {
   spawnId?: string;
   availability?: string;
   isActiveSpawn?: boolean;
-  raw: NPC | Place | Quest;
+  isSimulated?: boolean;
+  simulatedNpc?: SimulatedNPCInstance;
+  raw: NPC | Place | Quest | SimulatedNPCInstance;
 }
 
 export const RadarListScreen: React.FC = () => {
   const {
     currentLocation,
     npcs,
+    simulatedNPCs,
     places,
     quests,
     currentDistrict,
     activeSpawn,
     accuracyTier,
     setSelectedNPCForChat,
+    setSelectedSimulatedNPC,
     reportSafetyIssue,
   } = useGameStore();
 
@@ -47,7 +52,7 @@ export const RadarListScreen: React.FC = () => {
   // Compile items with distance
   const items: RadarItem[] = [];
 
-  // 1. NPCs (including active spawn encounter metadata)
+  // 1. Static NPCs (including active spawn encounter metadata)
   npcs.forEach((npc) => {
     const dist = Math.round(
       haversineDistanceMeters(
@@ -74,6 +79,23 @@ export const RadarListScreen: React.FC = () => {
       availability,
       isActiveSpawn: isActive,
       raw: npc,
+    });
+  });
+
+  // 1b. Living Simulated NPCs from Encounter Director
+  simulatedNPCs.forEach((sim) => {
+    if (sim.state === 'DESPAWNED' || sim.visibilityTier === 'HIDDEN') return;
+    items.push({
+      id: sim.id,
+      type: 'simulated_npc',
+      title: sim.name,
+      subtitle: `${sim.title} • ${sim.state === 'INTERACTABLE' ? 'Valmis suhtlema' : 'Uurib ümbrust'}`,
+      distanceMeters: sim.distanceToPlayerMeters,
+      district: sim.district,
+      badge: sim.avatar,
+      isSimulated: true,
+      simulatedNpc: sim,
+      raw: sim,
     });
   });
 
@@ -125,7 +147,9 @@ export const RadarListScreen: React.FC = () => {
 
   const handleItemClick = (item: RadarItem) => {
     soundManager.playTap();
-    if (item.type === 'npc') {
+    if (item.type === 'simulated_npc' && item.simulatedNpc) {
+      setSelectedSimulatedNPC(item.simulatedNpc);
+    } else if (item.type === 'npc') {
       setSelectedNPCForChat(item.raw as NPC);
     }
   };

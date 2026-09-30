@@ -8,38 +8,88 @@
         function shouldSuppress(arg) {
           if (!arg) return false;
           try {
-            const str = typeof arg === 'string' ? arg : (arg.message || String(arg) || JSON.stringify(arg));
-            return str.includes('[vite]') || str.toLowerCase().includes('websocket') || str.includes('ws://') || str.includes('wss://');
+            const str = typeof arg === 'string' ? arg : (arg?.message || arg?.stack || String(arg) || JSON.stringify(arg));
+            const lower = str.toLowerCase();
+            return str.includes('[vite]') || lower.includes('vite') || lower.includes('websocket') || lower.includes('ws://') || lower.includes('wss://');
           } catch {
             return false;
           }
         }
 
-        const origError = console.error;
-        console.error = function (...args) {
-          if (args.some(shouldSuppress)) return;
-          origError.apply(console, args);
-        };
-
-        const origWarn = console.warn;
-        console.warn = function (...args) {
-          if (args.some(shouldSuppress)) return;
-          origWarn.apply(console, args);
-        };
-
-        window.addEventListener('error', function (event) {
-          if (shouldSuppress(event.message) || shouldSuppress(event.error)) {
-            event.stopImmediatePropagation();
-            event.preventDefault();
+        ['error', 'warn', 'log', 'info', 'debug'].forEach(function (method) {
+          const orig = console[method];
+          if (orig) {
+            console[method] = function (...args) {
+              if (args.some(shouldSuppress)) return;
+              orig.apply(console, args);
+            };
           }
-        }, true);
+        });
 
-        window.addEventListener('unhandledrejection', function (event) {
-          if (shouldSuppress(event.reason)) {
-            event.stopImmediatePropagation();
-            event.preventDefault();
+        window.addEventListener(
+          'error',
+          function (event) {
+            if (shouldSuppress(event.message) || shouldSuppress(event.error) || shouldSuppress(event.filename)) {
+              event.stopImmediatePropagation();
+              event.preventDefault();
+            }
+          },
+          true
+        );
+
+        window.addEventListener(
+          'unhandledrejection',
+          function (event) {
+            if (shouldSuppress(event.reason)) {
+              event.stopImmediatePropagation();
+              event.preventDefault();
+            }
+          },
+          true
+        );
+
+        try {
+          var OriginalWS = window.WebSocket;
+          function InertWS(url, protocols) {
+            var target = new EventTarget();
+            target.url = url;
+            target.protocols = protocols;
+            target.readyState = 1;
+            target.send = function () {};
+            target.close = function (code, reason) {
+              target.readyState = 3;
+              var ev = new Event('close');
+              target.dispatchEvent(ev);
+              if (typeof target.onclose === 'function') target.onclose(ev);
+            };
+            setTimeout(function () {
+              var ev = new Event('open');
+              target.dispatchEvent(ev);
+              if (typeof target.onopen === 'function') target.onopen(ev);
+            }, 0);
+            return target;
           }
-        }, true);
+          InertWS.CONNECTING = 0;
+          InertWS.OPEN = 1;
+          InertWS.CLOSING = 2;
+          InertWS.CLOSED = 3;
+
+          window.WebSocket = function (url, protocols) {
+            if (typeof url === 'string' && (url.includes('vite') || url.includes('localhost') || url.includes('ws://') || url.includes('wss://'))) {
+              return InertWS(url, protocols);
+            }
+            if (OriginalWS) {
+              return new OriginalWS(url, protocols);
+            }
+            return InertWS(url, protocols);
+          };
+          window.WebSocket.CONNECTING = 0;
+          window.WebSocket.OPEN = 1;
+          window.WebSocket.CLOSING = 2;
+          window.WebSocket.CLOSED = 3;
+        } catch (e) {
+          // Ignore
+        }
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />

@@ -38,6 +38,18 @@ import {
 } from '../../services/geo/geoUtils';
 import { districtTracker, getAccuracyTier } from '../../services/geo/districtService';
 import { getDeterministicSpawnForDistrict, getCurrentTimeSlot } from '../../services/npc/spawnService';
+import { defaultEncounterResolver, EncounterResolver } from '../encounters/EncounterResolver';
+import { npcManager, NPCManager } from '../npc/NPCManager';
+import { WorldClock, WorldTimeInfo } from '../world/WorldClock';
+import { NPCCombat, CombatPlayerAction, CombatTurnResult } from '../npc/NPCCombat';
+import { NPCTrade } from '../npc/NPCTrade';
+import { FactionId, FACTIONS } from '../npc/NPCFaction';
+import { SimulatedNPCInstance, NPCState } from '../npc/NPCSimulation';
+import { FictionalTradeItem, NPCActionType, getArchetypeDefinition } from '../npc/NPCArchetypes';
+import { DistrictReputationEngine } from '../world/DistrictReputationEngine';
+import { DiscoveryLayerEngine } from '../world/DiscoveryLayers';
+import { StreetMemoryEngine, StreetMemory } from '../world/StreetMemory';
+import { NPCRoutineEngine } from '../npc/NPCRoutineEngine';
 import { soundManager } from '../../audio/soundManager';
 import { SEED_ITEMS } from '../../data/itemsSeed';
 import { SEED_ACHIEVEMENTS } from '../../data/achievements';
@@ -84,6 +96,25 @@ export class GameEngine {
   private projects: DistrictProject[] = [];
   private network: PlayerNetwork;
 
+  // Living City Encounter Director & NPC Systems
+  private encounterResolver: EncounterResolver = defaultEncounterResolver;
+  private npcManager: NPCManager = npcManager;
+  private factionReputation: Record<FactionId, number> = {
+    LOCALS: 10,
+    WORKERS: 5,
+    NIGHTLIFE: 0,
+    STREET: 0,
+    TRADERS: 10,
+    SECURITY: 5,
+    MYSTERIOUS: 0,
+  };
+  private playerCombatHp = { current: 50, max: 50 };
+
+  // Living City Simulation Subsystems
+  public districtRepEngine: DistrictReputationEngine;
+  public discoveryLayerEngine: DiscoveryLayerEngine;
+  public streetMemoryEngine: StreetMemoryEngine;
+
   constructor() {
     this.profile = localStore.getProfile();
     this.companion = localStore.getCompanion();
@@ -93,6 +124,14 @@ export class GameEngine {
     this.achievements = localStore.getAchievements() || SEED_ACHIEVEMENTS.map((a) => ({ ...a }));
     this.projects = localStore.getDistrictProjects();
     this.network = localStore.getNetwork();
+
+    const savedRep = localStore.getDistrictReputation();
+    this.districtRepEngine = new DistrictReputationEngine(savedRep || undefined);
+
+    this.discoveryLayerEngine = new DiscoveryLayerEngine();
+
+    const savedMemories = localStore.getStreetMemories();
+    this.streetMemoryEngine = new StreetMemoryEngine(savedMemories || undefined);
 
     this.checkDailyReset();
 
@@ -492,6 +531,30 @@ export class GameEngine {
         }
         eventBus.emit('NPC_NEARBY', npc);
         break;
+      }
+    }
+
+    // 4. Update simulated procedural NPCs and evaluate Encounter Director
+    this.npcManager.updateAll(location);
+
+    if (dist > 0) {
+      const encResult = this.encounterResolver.processStep(
+        location,
+        dist,
+        this.currentDistrict,
+        candidateStreets,
+        this.places,
+        this.companion,
+        this.profile.level,
+        this.npcManager
+      );
+
+      if (encResult.spawned && encResult.instance) {
+        if (encResult.companionComment) {
+          this.companion.currentThought = encResult.companionComment;
+        }
+        soundManager.playDiscovery();
+        eventBus.emit('ENCOUNTER_SPAWNED', encResult.instance);
       }
     }
 
@@ -1360,6 +1423,249 @@ export class GameEngine {
     };
   }
 
+  // --- Encounter Director & Living NPC Methods ---
+
+  public getSimulatedNPCs(): SimulatedNPCInstance[] {
+    return this.npcManager.getActiveInstances();
+  }
+
+  public getSimulatedNPC(id: string): SimulatedNPCInstance | undefined {
+    return this.npcManager.getInstance(id);
+  }
+
+  public getEncounterResolver(): EncounterResolver {
+    return this.encounterResolver;
+  }
+
+  public getNPCManager(): NPCManager {
+    return this.npcManager;
+  }
+
+  public getWorldTimeInfo(): WorldTimeInfo {
+    const lat = this.lastLocation?.latitude || 59.437;
+    const lon = this.lastLocation?.longitude || 24.7535;
+    return WorldClock.getTimeInfo(lat, lon);
+  }
+
+  public getFactionReputation(): Record<FactionId, number> {
+    return { ...this.factionReputation };
+  }
+
+  public getPlayerCombatHp(): { current: number; max: number } {
+    return { ...this.playerCombatHp };
+  }
+
+  public executeCombatTurn(
+    instanceId: string,
+    action: CombatPlayerAction
+  ): CombatTurnResult {
+    const inst = this.npcManager.getInstance(instanceId);
+    if (!inst) {
+      return {
+        playerDamageDealt: 0,
+        npcDamageDealt: 0,
+        playerHpRemaining: this.playerCombatHp.current,
+        npcHpRemaining: 0,
+        isCombatOver: true,
+        outcome: 'player_won',
+        combatLog: ['Tegelane lahkus piirkonnast.'],
+      };
+    }
+
+    inst.state = 'COMBAT';
+
+    const result = NPCCombat.executeTurn(
+      action,
+      this.playerCombatHp.current,
+      this.playerCombatHp.max,
+      this.profile.skills,
+      inst
+    );
+
+    this.playerCombatHp.current = result.playerHpRemaining;
+
+    if (result.outcome === 'player_won') {
+      inst.state = 'FLEEING';
+      if (result.rewardCash) {
+        this.profile.cash += result.rewardCash;
+        this.recordCashTransaction(result.rewardCash, 'story_reward', `Võit: ${inst.name}`);
+      }
+      if (result.rewardXp) {
+        this.addExplorationXP(result.rewardXp);
+      }
+      // Faction and memory impact
+      const def = getArchetypeDefinition(inst.archetype);
+      this.factionReputation[def.faction] = Math.max(-100, (this.factionReputation[def.faction] || 0) - 5);
+      this.npcManager.recordInteraction(
+        instanceId,
+        'fought',
+        `Pidasite tänaval maha lahingu. ${result.combatLog[result.combatLog.length - 1]}`,
+        5,
+        'negative',
+        { cashDelta: result.rewardCash }
+      );
+      soundManager.playDiscovery();
+    } else if (result.outcome === 'player_fled') {
+      inst.state = 'WANDERING';
+      this.npcManager.recordInteraction(
+        instanceId,
+        'confronted',
+        'Taandusite konfliktist ohutusse kaugusesse.',
+        2,
+        'neutral'
+      );
+    } else if (result.outcome === 'player_knockout') {
+      inst.state = 'WANDERING';
+      this.playerCombatHp.current = Math.floor(this.playerCombatHp.max * 0.4); // Restore 40% after retreat
+      this.companion.happiness = Math.max(0, this.companion.happiness - 10);
+      this.npcManager.recordInteraction(
+        instanceId,
+        'fought',
+        'Võitlus osutus liiga raskeks, pidite taanduma.',
+        4,
+        'negative'
+      );
+    }
+
+    this.saveState();
+    return result;
+  }
+
+  public executeNPCTrade(
+    instanceId: string,
+    itemId: string
+  ): {
+    success: boolean;
+    message: string;
+    finalPrice: number;
+    item?: FictionalTradeItem;
+  } {
+    const inst = this.npcManager.getInstance(instanceId);
+    if (!inst) {
+      return { success: false, message: 'Tegelast ei leitud.', finalPrice: 0 };
+    }
+
+    const def = getArchetypeDefinition(inst.archetype);
+    const factionRep = this.factionReputation[def.faction] || 0;
+
+    const tradeRes = NPCTrade.buyItem(
+      itemId,
+      inst,
+      this.profile.cash,
+      1, // default acquaintance
+      factionRep
+    );
+
+    if (tradeRes.success && tradeRes.item) {
+      this.profile.cash -= tradeRes.finalPrice;
+      this.recordCashTransaction(
+        -tradeRes.finalPrice,
+        'trade_cost',
+        `Ost: ${tradeRes.item.name}`,
+        `trade-${Date.now()}`
+      );
+
+      // Add to player inventory
+      this.addItemToInventory(tradeRes.item.id, 1);
+
+      // Faction standing boost
+      this.factionReputation[def.faction] = Math.min(100, factionRep + 3);
+
+      // Memory & promotion check
+      const promo = this.npcManager.recordInteraction(
+        instanceId,
+        'traded',
+        `Ostis eseme "${tradeRes.item.name}" hinnaga ${tradeRes.finalPrice} kr.`,
+        4,
+        'positive',
+        { cashDelta: -tradeRes.finalPrice, itemExchanged: tradeRes.item.name, relPoints: 4 }
+      );
+
+      if (promo.promoted && promo.npc) {
+        if (!this.npcs.some((n) => n.id === promo.npc!.id)) {
+          this.npcs.push(promo.npc);
+          this.profile.knownNPCIds.push(promo.npc.id);
+          this.companion.currentThought = `Ohoo! ${promo.npc.name} sai meie püsivaks sõbraks ja tuttavaks linnas!`;
+          soundManager.playLevelUp();
+        }
+      } else {
+        soundManager.playDiscovery();
+      }
+
+      this.saveState();
+    }
+
+    return tradeRes;
+  }
+
+  public interactWithSimulatedNPC(
+    instanceId: string,
+    action: NPCActionType
+  ): {
+    success: boolean;
+    message: string;
+    promoted?: boolean;
+    promotedNPC?: NPC;
+  } {
+    const inst = this.npcManager.getInstance(instanceId);
+    if (!inst) {
+      return { success: false, message: 'Tegelane ei viibi enam läheduses.' };
+    }
+
+    const def = getArchetypeDefinition(inst.archetype);
+
+    if (action === 'TALK' || action === 'ASK') {
+      inst.state = 'TALKING';
+      const dialogue = def.sampleDialogue[Math.floor(Math.random() * def.sampleDialogue.length)];
+
+      const promo = this.npcManager.recordInteraction(
+        instanceId,
+        'conversed',
+        `Rääkisite teemal: "${dialogue}"`,
+        3,
+        'positive',
+        { relPoints: 3 }
+      );
+
+      if (promo.promoted && promo.npc) {
+        if (!this.npcs.some((n) => n.id === promo.npc!.id)) {
+          this.npcs.push(promo.npc);
+          this.profile.knownNPCIds.push(promo.npc.id);
+          this.companion.currentThought = `Vau! ${promo.npc.name} hakkas meid usaldama ja on nüüd püsikontakt!`;
+        }
+      }
+
+      this.saveState();
+      return {
+        success: true,
+        message: dialogue,
+        promoted: promo.promoted,
+        promotedNPC: promo.npc,
+      };
+    } else if (action === 'LEAVE') {
+      inst.state = 'WANDERING';
+      return { success: true, message: 'Jätkasid oma teekonda.' };
+    }
+
+    return { success: true, message: 'Suhtlus sooritatud.' };
+  }
+
+  public resolveNPCRoutine(instanceId: string) {
+    const inst = this.npcManager.getInstance(instanceId);
+    if (!inst) return null;
+
+    const currentHour = new Date().getHours();
+    const hasQuest = this.quests.some(
+      (q) => q.status === 'active' && q.giverNPCId === inst.id
+    );
+    const repInfo = this.districtRepEngine.getStandingInfo(this.currentDistrict);
+
+    return NPCRoutineEngine.resolveActivity(inst, currentHour, {
+      hasActiveQuestWithNPC: hasQuest,
+      playerRelationshipLevel: repInfo.perks.specialDialogueUnlocked ? 3 : 1,
+    });
+  }
+
   public saveState(): void {
     localStore.saveProfile(this.profile);
     localStore.saveCompanion(this.companion);
@@ -1370,6 +1676,8 @@ export class GameEngine {
     localStore.saveStreetsProgress(this.streets);
     localStore.saveDistrictProjects(this.projects);
     localStore.saveNetwork(this.network);
+    localStore.saveDistrictReputation(this.districtRepEngine.getAllReputations());
+    localStore.saveStreetMemories(this.streetMemoryEngine.getAllMemories());
   }
 }
 

@@ -37,9 +37,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
     companion,
     quests,
     npcs,
+    simulatedNPCs,
     places,
     currentLocation,
     currentDistrict,
+    worldTime,
     activeSpawn,
     accuracyTier,
     districtProjects,
@@ -47,6 +49,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
     contributeToProject,
     maintainGear,
     setSelectedNPCForChat,
+    setSelectedSimulatedNPC,
     setActiveScreen,
   } = useGameStore();
 
@@ -92,10 +95,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
               STREETBLOOM <span className="text-amber-400 font-semibold lowercase text-xs">/ varjulinn</span>
             </h1>
           </div>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-600/40 text-emerald-300 font-medium flex items-center gap-1">
               <MapPin className="w-3 h-3 text-emerald-400" />
               {currentDistrict}
+            </span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-950/80 border border-indigo-500/40 text-indigo-200 font-medium flex items-center gap-1">
+              <span>{worldTime?.phaseIcon || '☀️'}</span>
+              <span>{worldTime?.phaseLabel || 'Päev'}</span>
             </span>
             <span
               className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
@@ -106,7 +113,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
                   : 'bg-rose-950/60 border-rose-500/30 text-rose-300'
               }`}
             >
-              GPS {accuracyTier === 'HIGH' ? 'Täpne (≤35m)' : accuracyTier === 'MEDIUM' ? 'Mõõdukas' : 'Ebakindel'}
+              GPS {accuracyTier === 'HIGH' ? 'Täpne' : accuracyTier === 'MEDIUM' ? 'Mõõdukas' : 'Ebakindel'}
             </span>
           </div>
         </div>
@@ -413,6 +420,74 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Elavad tänava tegelased ja kohtumised (Living Street Encounters) */}
+      {simulatedNPCs.filter((n) => n.visibilityTier !== 'HIDDEN').length > 0 && (
+        <div className="bg-[#181d24] border border-indigo-500/30 rounded-3xl p-4 mb-4 shadow-xl relative overflow-hidden">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+              Elavad tänavakontaktid ({simulatedNPCs.filter((n) => n.visibilityTier !== 'HIDDEN').length})
+            </span>
+            <span className="text-[10px] text-slate-400 font-mono">
+              Reaalajas protseduurilised
+            </span>
+          </div>
+
+          <div className="space-y-2.5">
+            {simulatedNPCs
+              .filter((n) => n.visibilityTier !== 'HIDDEN')
+              .slice(0, 3)
+              .map((simNpc) => {
+                const distMeters =
+                  simNpc.distanceToPlayerMeters !== undefined
+                    ? Math.round(simNpc.distanceToPlayerMeters)
+                    : Math.round(
+                        haversineDistanceMeters(
+                          currentLocation.latitude,
+                          currentLocation.longitude,
+                          simNpc.currentLat,
+                          simNpc.currentLon
+                        )
+                      );
+
+                return (
+                  <div
+                    key={simNpc.id}
+                    className="flex items-center justify-between bg-[#12151a] p-3 rounded-2xl border border-white/5 hover:border-indigo-500/30 transition"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-900 to-purple-900 border border-indigo-500/30 flex items-center justify-center text-xl shrink-0 shadow-md">
+                        {simNpc.avatar}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h4 className="text-xs font-bold text-white truncate">{simNpc.name}</h4>
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-medium">
+                            {simNpc.archetype}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {distMeters} m kaugusel • Seisund: {simNpc.state}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        soundManager.playTap();
+                        setSelectedSimulatedNPC(simNpc);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs transition shadow-md shadow-indigo-600/30 shrink-0 ml-2"
+                    >
+                      Kohtu
+                    </button>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
 
       {/* Lähim tegelane või kontakt piirkonnas */}
       <div className="bg-[#181d24] border border-white/10 rounded-3xl p-4 mb-4 shadow-md">

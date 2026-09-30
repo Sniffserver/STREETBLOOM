@@ -29,12 +29,14 @@ export const ExplorationMap: React.FC<ExplorationMapProps> = ({ onSelectNPC, onS
     streets,
     places,
     npcs,
+    simulatedNPCs,
     activeSpawn,
     settings,
     isSimulatingWalk,
     toggleSimulatedWalk,
     updateLocation,
     setSelectedNPCForChat,
+    setSelectedSimulatedNPC,
     setSelectedStreetForModal,
   } = useGameStore();
 
@@ -363,7 +365,64 @@ export const ExplorationMap: React.FC<ExplorationMapProps> = ({ onSelectNPC, onS
 
       npcMarkersRef.current.push(marker);
     });
-  }, [npcs, activeSpawn, mapLoaded]);
+
+    // Render Procedural Living NPCs with Progressive Visibility (70m hidden, 45m faint radar, 30m map visible, 12m interactable)
+    simulatedNPCs.forEach((sim) => {
+      if (sim.visibilityTier === 'HIDDEN' || sim.state === 'DESPAWNED') return;
+
+      const isInteractable = sim.visibilityTier === 'INTERACTABLE' || sim.distanceToPlayerMeters <= 15;
+      const isFaint = sim.visibilityTier === 'RADAR_FAINT';
+
+      const el = document.createElement('div');
+      el.className = 'group relative flex flex-col items-center cursor-pointer transition-transform hover:scale-120 active:scale-95';
+
+      if (isFaint) {
+        el.innerHTML = `
+          <div class="relative flex items-center justify-center">
+            <div class="absolute w-8 h-8 rounded-full bg-amber-500/20 animate-ping pointer-events-none"></div>
+            <div class="w-6 h-6 rounded-full bg-amber-500/40 border border-amber-400/60 flex items-center justify-center text-xs text-amber-200 shadow-md">
+              ?
+            </div>
+          </div>
+          <span class="text-[9px] text-amber-300 font-mono mt-0.5">${sim.distanceToPlayerMeters}m</span>
+        `;
+      } else {
+        el.innerHTML = `
+          <div class="flex items-center gap-1 px-1.5 py-0.5 mb-1 rounded-full ${
+            isInteractable
+              ? 'bg-amber-500 text-black font-extrabold ring-2 ring-amber-300 animate-bounce'
+              : 'bg-slate-900/90 border border-amber-500/50 text-amber-200'
+          } text-[10px] font-medium shadow-lg whitespace-nowrap">
+            <span>${sim.avatar}</span>
+            <span>${sim.name}</span>
+            <span class="text-[9px] opacity-80 font-mono">(${sim.distanceToPlayerMeters}m)</span>
+            ${isInteractable ? '<span class="text-[9px] bg-black text-amber-400 px-1 rounded ml-0.5">RÄÄGI</span>' : ''}
+          </div>
+          <div class="relative flex items-center justify-center">
+            ${
+              isInteractable
+                ? '<div class="absolute w-12 h-12 rounded-full bg-amber-400/40 animate-ping pointer-events-none"></div>'
+                : ''
+            }
+            <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-500 via-orange-500 to-yellow-400 border-2 border-amber-200 shadow-lg flex items-center justify-center text-base">
+              ${sim.avatar}
+            </div>
+          </div>
+          <div class="w-1.5 h-1.5 rounded-full bg-amber-400 mt-0.5"></div>
+        `;
+      }
+
+      el.addEventListener('click', () => {
+        setSelectedSimulatedNPC(sim);
+      });
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([sim.currentLon, sim.currentLat])
+        .addTo(mapRef.current!);
+
+      npcMarkersRef.current.push(marker);
+    });
+  }, [npcs, simulatedNPCs, activeSpawn, mapLoaded]);
 
   // Create & Update Place Markers
   useEffect(() => {

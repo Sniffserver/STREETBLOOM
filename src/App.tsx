@@ -12,12 +12,18 @@ import { CollectionScreen } from './features/collection/CollectionScreen';
 import { ProfileScreen } from './features/profile/ProfileScreen';
 import { SettingsScreen } from './features/settings/SettingsScreen';
 import { DebugPanel } from './features/dev/DebugPanel';
+import { EncounterDebugOverlay } from './features/dev/EncounterDebugOverlay';
 import { CelebrationModal } from './components/ui/CelebrationModal';
 import { StreetDetailsModal } from './features/map/StreetDetailsModal';
 import { OnboardingModal } from './features/onboarding/OnboardingModal';
 import { OfflineIndicator } from './features/pwa/OfflineIndicator';
 import { DashboardScreen } from './features/dashboard/DashboardScreen';
 import { RadarListScreen } from './features/radar/RadarListScreen';
+import { MemoryMapScreen } from './features/map/MemoryMapScreen';
+import { ExploreModeOverlay } from './features/map/ExploreModeOverlay';
+import { LookAheadEngine } from './game/world/LookAheadEngine';
+import { EncounterToast } from './features/npc/EncounterToast';
+import { SimulatedNPCModal } from './features/npc/SimulatedNPCModal';
 
 export default function App() {
   const {
@@ -26,6 +32,8 @@ export default function App() {
     currentLocation,
     selectedNPCForChat,
     setSelectedNPCForChat,
+    selectedSimulatedNPC,
+    setSelectedSimulatedNPC,
     selectedStreetForModal,
     setSelectedStreetForModal,
     settings,
@@ -40,6 +48,7 @@ export default function App() {
   const [devPanelOpen, setDevPanelOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [isExploreMode, setIsExploreMode] = useState(false);
 
   // Initialize engine on first mount
   useEffect(() => {
@@ -167,9 +176,31 @@ export default function App() {
 
           {activeScreen === 'radar' && <RadarListScreen />}
 
+          {activeScreen === 'memory_map' && (
+            <MemoryMapScreen onBack={() => setActiveScreen('explore')} />
+          )}
+
           {activeScreen === 'explore' && (
             <>
-              <CompassHeader />
+              {!isExploreMode && (
+                <CompassHeader
+                  onToggleExploreMode={() => setIsExploreMode(true)}
+                  isExploreMode={isExploreMode}
+                />
+              )}
+
+              {isExploreMode && (
+                <ExploreModeOverlay
+                  lookAheadTargets={LookAheadEngine.evaluateLookAhead(
+                    currentLocation,
+                    currentLocation.heading,
+                    useGameStore.getState().simulatedNPCs,
+                    useGameStore.getState().streets
+                  )}
+                  onExitExploreMode={() => setIsExploreMode(false)}
+                />
+              )}
+
               <ExplorationMap
                 onSelectNPC={(npc) => setSelectedNPCForChat(npc)}
                 onSelectStreet={(street) => setSelectedStreetForModal(street)}
@@ -218,9 +249,21 @@ export default function App() {
 
         {/* Developer Debug Console */}
         {devPanelOpen && <DebugPanel onClose={() => setDevPanelOpen(false)} />}
+        <EncounterDebugOverlay />
 
         {/* First-time Onboarding Modal */}
         {onboardingOpen && <OnboardingModal onComplete={() => setOnboardingOpen(false)} />}
+
+        {/* Realtime Encounter Toast */}
+        <EncounterToast />
+
+        {/* Living Simulated NPC Encounter & Combat & Trade Modal */}
+        {selectedSimulatedNPC && (
+          <SimulatedNPCModal
+            npc={selectedSimulatedNPC}
+            onClose={() => setSelectedSimulatedNPC(null)}
+          />
+        )}
       </div>
     </div>
   );

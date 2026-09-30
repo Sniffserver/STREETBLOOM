@@ -27,6 +27,8 @@ const STORAGE_KEYS = {
   LAST_LOC: 'sb_last_location',
   DISTRICT_PROJECTS: 'sb_district_projects',
   PLAYER_NETWORK: 'sb_player_network',
+  DISTRICT_REP: 'sb_district_rep',
+  STREET_MEMORIES: 'sb_street_memories',
 };
 
 export interface GameSettings {
@@ -469,6 +471,40 @@ export class LocalGameStore {
       this.setItem(STORAGE_KEYS.PLAYER_NETWORK, JSON.stringify(network));
     } catch (e) {
       console.warn('Failed to save network', e);
+    }
+  }
+
+  public getDistrictReputation(): Record<string, number> | null {
+    try {
+      const data = this.getItem(STORAGE_KEYS.DISTRICT_REP);
+      return data ? JSON.parse(data) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  public saveDistrictReputation(rep: Record<string, number>): void {
+    try {
+      this.setItem(STORAGE_KEYS.DISTRICT_REP, JSON.stringify(rep));
+    } catch (e) {
+      console.warn('Failed to save district reputation', e);
+    }
+  }
+
+  public getStreetMemories(): any[] | null {
+    try {
+      const data = this.getItem(STORAGE_KEYS.STREET_MEMORIES);
+      return data ? JSON.parse(data) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  public saveStreetMemories(memories: any[]): void {
+    try {
+      this.setItem(STORAGE_KEYS.STREET_MEMORIES, JSON.stringify(memories));
+    } catch (e) {
+      console.warn('Failed to save street memories', e);
     }
   }
 }

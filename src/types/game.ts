@@ -484,3 +484,10 @@ export interface ValidatedDiscoveryResult {
   xpAwarded: number;
   message: string;
 }
+
+export type { FactionId, FactionInfo } from '../game/npc/NPCFaction';
+export type { NPCArchetype, DayArchetype, NightArchetype, FictionalTradeItem, NPCActionType } from '../game/npc/NPCArchetypes';
+export type { SimulatedNPCInstance, NPCState } from '../game/npc/NPCSimulation';
+export type { CombatPlayerAction, CombatTurnResult } from '../game/npc/NPCCombat';
+export type { WorldTimePhase, WorldTimeInfo } from '../game/world/WorldClock';
+export type { EncounterDecision } from '../game/encounters/EncounterDirector';
